@@ -31,7 +31,7 @@ mov_cov = np.array([[1e-8, 0, 0],
 
 class LidarData:
     def __init__(self, scan_data):
-        self.scan_time = scan_data.header.stamp.nanoseconds / 1e9
+        self.scan_time = scan_data.header.stamp.nanosec / 1e9
         self.lidar_data = scan_data.ranges        
         angle_min = scan_data.angle_min
         angle_max = scan_data.angle_max
@@ -55,7 +55,7 @@ class LidarData:
 
 class OdomData:
     def __init__(self, odom_data):
-        self.odom_time = odom_data.header.stamp.nanoseconds / 1e9
+        self.odom_time = odom_data.header.stamp.nanosec / 1e9
         self.quaternion = odom_data.pose.pose.orientation
         self.x = odom_data.pose.pose.position.x
         self.y = odom_data.pose.pose.position.y
@@ -116,6 +116,7 @@ class SLAMNavigationNode(Node):
         self.timer = self.create_timer(1.0, self.process_data)
 
     def lidar_callback(self, msg):
+        self.get_logger().info('Received lidar_callback data')
         self.slam_map.add_lidar_data(LidarData(msg))
 
     def camera_callback(self, msg):
