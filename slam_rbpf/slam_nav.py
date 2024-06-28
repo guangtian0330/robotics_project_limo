@@ -19,6 +19,7 @@ import numpy as np
 import math
 from . import transformations as tf
 from nav_msgs.msg import OccupancyGrid
+from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 
 STATUS_TYPE_STAY = "stay"
 STATUS_TYPE_FORWARD = "forward"
@@ -32,7 +33,7 @@ mov_cov = np.array([[1e-8, 0, 0],
 class LidarData:
     def __init__(self, scan_data):
         self.scan_time = scan_data.header.stamp.nanosec / 1e9
-        self.lidar_data = scan_data.ranges        
+        self.lidar_data =  np.array(scan_data.ranges)        
         angle_min = scan_data.angle_min
         angle_max = scan_data.angle_max
         angle_increment = scan_data.angle_increment
@@ -85,12 +86,18 @@ class OdomData:
 class SLAMNavigationNode(Node):
     def __init__(self):
         super().__init__('slam_rbpf_nav')
+        qos_profile = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE
+        )
         # Subscribe lidar data.
         self.lidar_subscription = self.create_subscription(
             LaserScan,
             '/scan',
             self.lidar_callback,
-            10)
+            qos_profile)
         # Subscribe camera data
         self.camera_subscription = self.create_subscription(
             Image,
@@ -100,7 +107,7 @@ class SLAMNavigationNode(Node):
         # Subscribe odometer data
         self.odom_subscription = self.create_subscription(
             Odometry,
-            '/odom',
+            '/odometry',
             self.odom_callback,
             10)
         self.map_publisher = self.create_publisher(OccupancyGrid, '/map', 10)
@@ -126,6 +133,7 @@ class SLAMNavigationNode(Node):
     # callback function for odometers. the moved distance and turned angles could be calculated with collected data from
     # the odometer.
     def odom_callback(self, msg):
+        self.get_logger().info('Received odom_callback data')
         odom_data = OdomData(msg)
         self.slam_map.add_odo_data(odom_data)
         if self.start_odom is None:

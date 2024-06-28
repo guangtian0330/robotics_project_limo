@@ -2,14 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from . import utils 
 
-def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose,thresh = 0.45):
+def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose, thresh = 0.45):
     """
     Send it in the reverse order. It overlays current_time_steps_map onto prev_time steps scan and then computes inverse
     trasformation to find updated curr_pose. Keep in mind here prev_scan refers to curr_scan and vice versa.
     prev_scan: Scan at time "t-1". Shape: (n,2)
     prev_pose: Pose of the current particle at previous time step: (3,)
-    prev_scan: Scan at time "t". Shape: (n,2)
-    prev_pose: Current estimate of the Pose of the particle at time t: (3,)
+    curr_scan: Scan at time "t". Shape: (n,2)
+    curr_best_pose: Current estimate of the Pose of the particle at time t: (3,)
     thresh: error threshold
     ---------
      Returns:
@@ -27,11 +27,13 @@ def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose,thresh = 0.45):
     trans_scan = utils.transformation_scans(prev_scan, d_pose)
     prev_pose_trial = utils.transformation_scans(prev_pose_trial[:2][None,:], d_pose)
     #plot_graph(curr_scan,trans_scan
-    Correspondance,_ = get_correspondance(curr_scan, trans_scan)
+    Correspondance, _ = get_correspondance(curr_scan, trans_scan)
     #print('correspondance:',Correspondance)
     curr_error = cal_error(curr_scan, trans_scan, Correspondance)
     initial_error = curr_error.copy()
     prev_error = 1e8
+    print(f"Correspondance-------------{Correspondance}")
+    print(f"curr_error-------------{curr_error}")
     while (curr_error < prev_error and iters < 100):
         d_pos_total_prev = d_pos_total
         prev_iter_pose_trial = prev_pose_trial
@@ -56,7 +58,7 @@ def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose,thresh = 0.45):
     d_pose[:2] = -R@d_pose[:2]
     pose_x = curr_best_pose + d_pose
     #print(pose_x)
-    return Flag,pose_x
+    return Flag, pose_x
 
 def get_correspondance(curr_scan, trans_scan):
     """
@@ -78,7 +80,7 @@ def get_correspondance(curr_scan, trans_scan):
     assert correspondance.shape[0] == x_trans.shape[0]
     return correspondance, min_dist
 
-def cal_error(curr_scan,trans_scan,Correspondance):
+def cal_error(curr_scan, trans_scan, Correspondance):
     """
     curr_scan:  Lidar scan at current time step (n,2)
     trans_scan: Transformed previous scan based on best known pose (n,2)

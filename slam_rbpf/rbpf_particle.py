@@ -99,7 +99,7 @@ class Particle():
         return pred_pose, pred_with_noise
         
 
-    def _scan_matching(self, init_scan, prev_scan, cur_scan, pred_odom):
+    def _scan_matching(self, init_scan, prev_scan, cur_scan, cur_pose):
         '''
         Performs scan matching and returns (true,scan matched pose) or (false,None)
         '''
@@ -107,12 +107,11 @@ class Particle():
         prev_scan_data = prev_scan.lidar_data - init_scan.lidar_data
         
         curr_coordinates = utils.dist_to_xy(curr_scan_data, cur_scan.lidar_angles_)
-        curr_odom = pred_odom
         prev_coordinates = utils.dist_to_xy(prev_scan_data, prev_scan.lidar_angles_)
-        prev_odom = self.trajectory_[:,-1]
+        prev_pose = self.trajectory_[:,-1]
         
         flag, updated_pose = matching.scan_matcher(
-            curr_coordinates.copy(), curr_odom.copy(), prev_coordinates.copy(), prev_odom.copy())      
+            prev_coordinates.copy(), prev_pose.copy(), curr_coordinates.copy(), cur_pose.copy())      
         return flag, updated_pose
     
     

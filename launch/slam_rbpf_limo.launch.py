@@ -25,6 +25,6 @@ def generate_launch_description():
         output='screen')
 
     ld = LaunchDescription()
-    ld.add_action(rviz_node)
+    #ld.add_action(rviz_node)
     ld.add_action(rbpf_node)
     return ld

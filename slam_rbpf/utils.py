@@ -4,13 +4,13 @@ from math import cos,sin
 
 time_index_0 = 0
 
-def transformation_scans(prev_scan,d_pose,Flag = False):
+def transformation_scans(scan_data, pose_data, Flag = False):
     """
     Parameters
     ----------
-    prev_scan : Scan at time t-1
+    scan_data : Scan at time t-1
         Shape: (n,2)
-    d_pose : change in pose
+    pose_data : change in pose
         Shape: (3,).
 
     Returns
@@ -18,28 +18,28 @@ def transformation_scans(prev_scan,d_pose,Flag = False):
     trans_scan: transformed scan
          shape: (n,2) 
     """
-    R = twoDRotation(d_pose[2])
-    d_pose = d_pose.flatten()
+    R = twoDRotation(pose_data[2])
+    pose_data = pose_data.flatten()
     if Flag:
       print('R:',R)
       
-    # if prev_scan.shape != (1080,2):
-    #     print(prev_scan.shape)
-    # assert prev_scan.shape == (1080,2)
-    # assert d_pose.shape == (3,)
+    # if scan_data.shape != (1080,2):
+    #     print(scan_data.shape)
+    # assert scan_data.shape == (1080,2)
+    # assert pose_data.shape == (3,)
     
-    if prev_scan.shape[1]!=2:
-        prev_scan = prev_scan.T
+    if scan_data.shape[1] != 2:
+        scan_data = scan_data.T
         
-    trans_scan = np.dot(R,prev_scan.T).T 
-    trans_scan += d_pose[:2]
+    trans_scan = np.dot(R, scan_data.T).T 
+    trans_scan += pose_data[:2]
     
-    assert trans_scan.shape == prev_scan.shape    
+    assert trans_scan.shape == scan_data.shape    
     return trans_scan
 
 def twoDRotation(theta):
     """Return rotation matrix of rotation in 2D by theta"""
-    return np.array([[cos(theta), -sin(theta)],[sin(theta), cos(theta)]])
+    return np.array([[cos(theta), -sin(theta)], [sin(theta), cos(theta)]])
 
 def twoDSmartPlus(x1,x2,type='pose'):
     """Return smart plus of two poses in order (x1 + x2)as defined in particle filter
@@ -84,19 +84,19 @@ def twoDSmartMinus(x2,x1,type='pose'):
         return np.array([trans_of_u[0], trans_of_u[1],delta_theta])
     # if type == 'rot'
     rot_of_u = twoDRotation(delta_theta)
-    return np.array([[rot_of_u[0,0],rot_of_u[0,1],trans_of_u[0]],\
-                     [rot_of_u[1,0],rot_of_u[1,1],trans_of_u[1]],\
+    return np.array([[rot_of_u[0,0], rot_of_u[0,1], trans_of_u[0]],\
+                     [rot_of_u[1,0], rot_of_u[1,1], trans_of_u[1]],\
                      [0            ,   0         ,   1]])
-def dist_to_xy(scan,angles):
+def dist_to_xy(scan, angles):
     """
     Scan: (1080,) array of distances
     angles: (1080,) angles of the scan
     dpose: distance between the frames
     xy: (1080,2) array of cartisian cordinates
     """
-    xy = np.zeros((scan.shape[0],2))
-    xy[:,0] = np.cos(angles) * scan
-    xy[:,1] = np.sin(angles) * scan
+    xy = np.zeros((scan.shape[0], 2))
+    xy[:, 0] = np.cos(angles) * scan
+    xy[:, 1] = np.sin(angles) * scan
     return xy
     
     

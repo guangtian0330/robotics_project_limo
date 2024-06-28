@@ -51,8 +51,8 @@ class SLAM():
     def get_odom_at_time(self, index):
         if not self.odom_data_list:
             return np.array([])
-        lidar_time = self.lidar_data_list[index]
-        odom_idx = np.argmin([np.abs(od.odom_time - lidar_time) for od in self.odom_data_list])
+        lidar_data = self.lidar_data_list[index]
+        odom_idx = np.argmin([np.abs(od.odom_time - lidar_data.scan_time) for od in self.odom_data_list])
         return np.array([self.odom_data_list[odom_idx].x, self.odom_data_list[odom_idx].y, self.odom_data_list[odom_idx].theta])
         
     def _resample(self):

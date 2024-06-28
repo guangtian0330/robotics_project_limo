@@ -12,7 +12,7 @@ def generate_launch_description():
     # Constants for paths to different files and folders
     package_name = 'slam_rbpf'
     robot_name_in_model = 'limo_rbpf'
-    rviz_config_file_path = 'config/slam_rbpf.rviz'
+    rviz_config_file_path = 'rviz/urdf.rviz'
     urdf_file_path = 'urdf/limo_four_diff.xacro'
     world_file_path = 'worlds/basic.world'
 
