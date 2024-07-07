@@ -20,6 +20,8 @@ import math
 from . import transformations as tf
 from nav_msgs.msg import OccupancyGrid
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
+from std_msgs.msg import Header
+import time
 
 STATUS_TYPE_STAY = "stay"
 STATUS_TYPE_FORWARD = "forward"
@@ -33,12 +35,14 @@ mov_cov = np.array([[1e-8, 0, 0],
 class LidarData:
     def __init__(self, scan_data):
         self.scan_time = scan_data.header.stamp.nanosec / 1e9
-        self.lidar_data =  np.array(scan_data.ranges)        
+        self.lidar_data =  np.array(scan_data.ranges)
+        self.lidar_data[np.isinf(self.lidar_data)] = scan_data.range_max
         angle_min = scan_data.angle_min
         angle_max = scan_data.angle_max
         angle_increment = scan_data.angle_increment
         self.lidar_angles_ = np.arange(angle_min, angle_max, angle_increment)
-        self.lidar_max_ = scan_data.range_max
+        self.lidar_max_ = 8
+        self.time = None
 
     def _polar_to_cartesian(self, scan, pose = None):
         '''
@@ -120,10 +124,10 @@ class SLAMNavigationNode(Node):
         self.move_threshold = 0.01
         self.slam_map = SLAM(mov_cov) # initiate a SLAM.
         self.time_index = time_index_0
-        self.timer = self.create_timer(1.0, self.process_data)
+        self.timer = self.create_timer(0.2, self.process_data)
 
     def lidar_callback(self, msg):
-        self.get_logger().info('Received lidar_callback data')
+        #self.get_logger().info('Received lidar_callback data')
         self.slam_map.add_lidar_data(LidarData(msg))
 
     def camera_callback(self, msg):
@@ -133,7 +137,7 @@ class SLAMNavigationNode(Node):
     # callback function for odometers. the moved distance and turned angles could be calculated with collected data from
     # the odometer.
     def odom_callback(self, msg):
-        self.get_logger().info('Received odom_callback data')
+        #self.get_logger().info('Received odom_callback data')
         odom_data = OdomData(msg)
         self.slam_map.add_odo_data(odom_data)
         if self.start_odom is None:
@@ -142,13 +146,13 @@ class SLAMNavigationNode(Node):
             moved_distance = odom_data.get_distance(self.start_odom)
             if ((moved_distance >= self.distance_to_move)
                     or (abs(moved_distance - self.distance_to_move) <= self.move_threshold)):
-                self.get_logger().info(f"----moved_distance = {moved_distance}")
+                #self.get_logger().info(f"----moved_distance = {moved_distance}")
                 self.stop_moving()
         if self.status == STATUS_TYPE_ROTATE_LEFT or STATUS_TYPE_ROTATE_RIGHT:
             rotated_angle = abs(odom_data.theta - self.start_odom.theta)
             if (rotated_angle >= self.angle_to_rotate
                     or (abs(rotated_angle - self.angle_to_rotate) <= self.turn_threshold)):
-                self.get_logger().info(f"----turned angles = {rotated_angle}")
+                #self.get_logger().info(f"----turned angles = {rotated_angle}")
                 self.stop_moving()
 
     def rotate(self, angular_speed):
@@ -165,7 +169,7 @@ class SLAMNavigationNode(Node):
         self.vel_publisher.publish(twist_msg)
 
     def go_straight(self, speed):
-        self.get_logger().info("-------------go_straight-------------")
+        #self.get_logger().info("-------------go_straight-------------")
         self.start_odom = None
         self.status = STATUS_TYPE_FORWARD
         twist_msg = Twist()
@@ -174,7 +178,7 @@ class SLAMNavigationNode(Node):
         self.vel_publisher.publish(twist_msg)
 
     def stop_moving(self):
-        self.get_logger().info('-----stop_moving-----')
+        #self.get_logger().info('-----stop_moving-----')
         twist_msg = Twist()
         twist_msg.linear.x = 0.0
         twist_msg.angular.z = 0.0
@@ -190,13 +194,18 @@ class SLAMNavigationNode(Node):
             index_start = 1
         else:
             index_start = 0
+        start_time = time.time()  # 记录函数开始时间
         grid_msg = self.slam_map._run_slam(index_start, data_size - 1)
-
+        elapsed_time = time.time() - start_time  # 计算经过的时间
+        grid_msg.header = Header()
+        grid_msg.header.stamp = self.get_clock().now().to_msg()
+        grid_msg.header.frame_id = 'map'
         # Publish the map
         self.map_publisher.publish(grid_msg)
-
+        self.get_logger().info(f'-----map_publisher has published the grid_msg---- {elapsed_time:.2f} seconds')
         self.time_index += 1
         self.slam_map.clear_data()
+
 
 def main(args=None):
     rclpy.init(args=args)

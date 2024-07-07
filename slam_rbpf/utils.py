@@ -4,7 +4,7 @@ from math import cos,sin
 
 time_index_0 = 0
 
-def transformation_scans(scan_data, pose_data, Flag = False):
+def transformation_scans(scan_data, pose_data, debug = False):
     """
     Parameters
     ----------
@@ -20,20 +20,19 @@ def transformation_scans(scan_data, pose_data, Flag = False):
     """
     R = twoDRotation(pose_data[2])
     pose_data = pose_data.flatten()
-    if Flag:
+    if debug:
       print('R:',R)
       
     # if scan_data.shape != (1080,2):
     #     print(scan_data.shape)
     # assert scan_data.shape == (1080,2)
     # assert pose_data.shape == (3,)
-    
     if scan_data.shape[1] != 2:
         scan_data = scan_data.T
-        
+
     trans_scan = np.dot(R, scan_data.T).T 
     trans_scan += pose_data[:2]
-    
+
     assert trans_scan.shape == scan_data.shape    
     return trans_scan
 
@@ -100,7 +99,7 @@ def dist_to_xy(scan, angles):
     return xy
     
     
-def update_weights(weights,correlations):
+def update_weights(weights, correlations):
 	"""Return weights based on correlation values"""
 	# update weights
 	log_weights = np.log(weights)

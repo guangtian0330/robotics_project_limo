@@ -26,25 +26,25 @@ def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose, thresh = 0.45)
     prev_scan = utils.transformation_scans(prev_scan, prev_pose)
     trans_scan = utils.transformation_scans(prev_scan, d_pose)
     prev_pose_trial = utils.transformation_scans(prev_pose_trial[:2][None,:], d_pose)
+
     #plot_graph(curr_scan,trans_scan
-    Correspondance, _ = get_correspondance(curr_scan, trans_scan)
-    #print('correspondance:',Correspondance)
-    curr_error = cal_error(curr_scan, trans_scan, Correspondance)
+    correspondance, _ = get_correspondance(curr_scan, trans_scan)
+    curr_error = cal_error(curr_scan, trans_scan, correspondance)
     initial_error = curr_error.copy()
     prev_error = 1e8
-    print(f"Correspondance-------------{Correspondance}")
-    print(f"curr_error-------------{curr_error}")
+    # print(f"Correspondance-------------{Correspondance}")
+    #print(f"curr_error-------------{curr_error}")
     while (curr_error < prev_error and iters < 100):
         d_pos_total_prev = d_pos_total
         prev_iter_pose_trial = prev_pose_trial
         prev_error = curr_error
-        d_pose = get_estimate(curr_scan.copy(), trans_scan.copy(), Correspondance)
+        d_pose = get_estimate(curr_scan.copy(), trans_scan.copy(), correspondance)
         trans_scan = utils.transformation_scans(trans_scan, d_pose)
         prev_pose_trial = utils.transformation_scans(prev_pose_trial, d_pose)
         d_pos_total = d_pos_total - d_pose
         #plot_graph(curr_scan,trans_scan,title = str(iters))
-        Correspondance, _ = get_correspondance(curr_scan, trans_scan)
-        curr_error = cal_error(curr_scan, trans_scan, Correspondance)
+        correspondance, _ = get_correspondance(curr_scan, trans_scan)
+        curr_error = cal_error(curr_scan, trans_scan, correspondance)
         iters += 1
     if curr_error < thresh and curr_error < initial_error:
         Flag = True
@@ -72,11 +72,11 @@ def get_correspondance(curr_scan, trans_scan):
     y_curr = curr_scan[:, 1]
     x_trans = trans_scan[:, 0][:, None]
     y_trans = trans_scan[:, 1][:, None]
+
     dist = np.square(x_curr - x_trans) + np.square(y_curr - y_trans)
-    correspondance = np.argmin(dist,axis = 1)
-    min_dist = np.amin(dist,axis = 1)
-    #print(correspondance.shape)
-    #print(x_trans.shape[0])
+    correspondance = np.argmin(dist, axis = 1)
+    min_dist = np.amin(dist, axis = 1)
+
     assert correspondance.shape[0] == x_trans.shape[0]
     return correspondance, min_dist
 
@@ -94,7 +94,7 @@ def cal_error(curr_scan, trans_scan, Correspondance):
     #print(error)
     return error
  
-def get_estimate(curr_scan,trans_scan,correspondance):
+def get_estimate(curr_scan, trans_scan, correspondance):
     """
     curr_scan:  Lidar scan at current time step (n,2)
     trans_scan: Transformed previous scan based on best known pose (n,2)
@@ -103,21 +103,22 @@ def get_estimate(curr_scan,trans_scan,correspondance):
     d_pose: difference in pose between two scans
     """
     d_pose = np.zeros(3)
-    curr_mean = np.mean(curr_scan,axis = 0)
-    trans_mean = np.mean(trans_scan,axis = 0)
-    
+    curr_mean = np.mean(curr_scan, axis = 0)
+    trans_mean = np.mean(trans_scan, axis = 0)
+    #print(f"curr_mean = {curr_mean}")
+    #print(f"trans_mean = {trans_mean}")
     curr_scan -= curr_mean
     trans_scan -= trans_mean
     corres_scan = curr_scan[correspondance,:]
-    
     assert corres_scan.shape == trans_scan.shape
     
-    W = np.dot(corres_scan.T,trans_scan)
+    W = np.dot(corres_scan.T, trans_scan)
+
     u,s,vt = np.linalg.svd(W)
     
-    R = np.dot(u,vt)
-    d_pose[:2] = curr_mean - np.dot(R,trans_mean)
-    d_pose[2] = np.arctan2(R[1,0],R[0,0])
+    R = np.dot(u, vt)
+    d_pose[:2] = curr_mean - np.dot(R, trans_mean)
+    d_pose[2] = np.arctan2(R[1,0], R[0,0])
 
     return d_pose
 

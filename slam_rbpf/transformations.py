@@ -74,7 +74,7 @@ def _map_to_world(map_x, map_y, MAP):
     world_y = ((map_y + 1) * MAP['res']) + MAP['ymin']
     return np.vstack((world_x, world_y))
 
-def _bresenham2D(sx,sy,ex,ey, MAP):
+def _bresenham2D(sx, sy, ex, ey, MAP):
     sx = int(np.round(sx))
     sy = int(np.round(sy))
     ex = int(np.round(ex))
