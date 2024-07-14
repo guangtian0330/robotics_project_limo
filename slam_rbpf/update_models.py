@@ -33,9 +33,7 @@ def measurement_model(data, pose, occupied_indices, MAP):
     map_cordinates[:,0], map_cordinates[:,1] = tf._world_to_map(xy[:,0], xy[:,1] , MAP)
     _, min_dist = match.get_correspondance(occupied_indices, map_cordinates)
     exp = (p_hit) * np.exp(-min_dist / (2 * sigma**2))
-    # print(f"min_dist={min_dist}, \n exp={exp}\n obstacle={obstacle}, \n xy={xy},\n map_cordinates ={map_cordinates}")
-    #print('measurement model:',np.mean(exp))
-    #print("----measurement_model exit")
+    #print(f"----measurement_model exp={exp}, min_dist={min_dist}")
     return np.mean(exp)  ###confirm over usage of exp prob,np.exp(prob),
 
 
@@ -64,7 +62,7 @@ def odometry_model(prev, curr, odom_prev, odom_curr):
     delta_rot2 = odom_curr[2] - odom_prev[2] - delta_rot1
 
     delta_hat_rot1 = np.arctan2(curr[1] - prev[1], curr[0] - prev[0]) - prev[2]  
-    delta_hat_trans = np.linalg.norm(curr[:2]-prev[:2])
+    delta_hat_trans = np.linalg.norm(curr[:2] - prev[:2])
     delta_hat_rot2 = curr[2] - prev[2] - delta_hat_rot1
     
     p1 = norm.pdf(angle_diff(delta_rot1 - delta_hat_rot1), loc = 0, scale = alpha[0] * np.abs(delta_hat_rot1) + alpha[1] * delta_hat_trans)

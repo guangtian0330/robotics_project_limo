@@ -1,22 +1,23 @@
 import numpy as np
 from math import cos, sin
 
-def twoDSmartPlus(new_odom, odom_diff, type='pose'):
+def twoDSmartPlus(old_odom, odom_diff, type='pose'):
     """Return smart plus of two poses in order (x1 + x2)as defined in particle filter
     :param
     x1,x2: two poses in form of (x,y,theta)
     type:  which type of return you choose. 'pose' to return (x,y,theta) form
                                             ' rot' to return transformation matrix (3x3)
     """
-    theta1 = new_odom[2]
+    theta1 = old_odom[2]
     R_theta1 = twoDRotation(theta1)
     # print '------ Rotation theta1:', R_theta1
     theta2 = odom_diff[2]
-    sum_theta = theta2 + theta1
-    p1 = new_odom[0:2]
+    sum_theta = ((theta2 + theta1) + np.pi) % (2 * np.pi) - np.pi
+    p1 = old_odom[0:2]
     p2 = odom_diff[0:2]
     # print 'p2:', p2
     trans_of_u = p1 + np.dot(R_theta1, p2)
+    #print(f"twoDSmartPlus: trans_of_u = p1{p1} + dot(thetal, p2){np.dot(R_theta1, p2)} =  {trans_of_u}, sum_theta = {sum_theta}")
     # print '------ transition of u:', trans_of_u-p1
     if type == 'pose':
         return np.array([trans_of_u[0], trans_of_u[1], sum_theta])
@@ -51,12 +52,15 @@ def twoDSmartMinus(new_odom, old_odom, type='pose'):
 
 def twoDRotation(theta):
     """Return rotation matrix of rotation in 2D by theta"""
-    return np.array([[cos(theta), -sin(theta)],[sin(theta), cos(theta)]])
+    return np.array([[cos(theta), -sin(theta)],
+                     [sin(theta), cos(theta)]])
 
 def twoDTransformation(x,y,theta):
     """Return transformation matrix of rotation in 2D by theta combining with a translation
     (x, y)"""
-    return np.array([[cos(theta), -sin(theta), x],[sin(theta), cos(theta), y],[0,0,1]])
+    return np.array([[cos(theta), -sin(theta), x],
+                     [sin(theta), cos(theta), y],
+                     [0,0,1]])
 
 def _world_to_map(world_x, world_y, MAP):
     '''

@@ -12,16 +12,17 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image, LaserScan
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Point, Quaternion
-from .utils import time_index_0
 from .rbpf_SLAM import SLAM
 from geometry_msgs.msg import Twist
 import numpy as np
 import math
 from . import transformations as tf
 from nav_msgs.msg import OccupancyGrid
+from std_msgs.msg import UInt8MultiArray
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from std_msgs.msg import Header
 import time
+from cv_bridge import CvBridge
 
 STATUS_TYPE_STAY = "stay"
 STATUS_TYPE_FORWARD = "forward"
@@ -114,7 +115,8 @@ class SLAMNavigationNode(Node):
             '/odometry',
             self.odom_callback,
             10)
-        self.map_publisher = self.create_publisher(OccupancyGrid, '/map', 10)
+        self.bridge = CvBridge()
+        self.map_publisher = self.create_publisher(Image, '/slam_map_image', 10)
         self.vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
         self.start_odom = None
         self.angle_to_rotate = np.pi / 6  # 30 degrees
@@ -123,8 +125,8 @@ class SLAMNavigationNode(Node):
         self.turn_threshold = 0.107 # Turn threshold in radians
         self.move_threshold = 0.01
         self.slam_map = SLAM(mov_cov) # initiate a SLAM.
-        self.time_index = time_index_0
-        self.timer = self.create_timer(0.2, self.process_data)
+        self.is_initialized = False
+        self.timer = self.create_timer(1, self.process_data)
 
     def lidar_callback(self, msg):
         #self.get_logger().info('Received lidar_callback data')
@@ -139,6 +141,7 @@ class SLAMNavigationNode(Node):
     def odom_callback(self, msg):
         #self.get_logger().info('Received odom_callback data')
         odom_data = OdomData(msg)
+        self.get_logger().info(f"--------odom_data:-----x={odom_data.x}, y={odom_data.y}, theta={odom_data.theta}-------------")
         self.slam_map.add_odo_data(odom_data)
         if self.start_odom is None:
             self.start_odom = odom_data
@@ -186,25 +189,26 @@ class SLAMNavigationNode(Node):
         self.status = STATUS_TYPE_STAY
 
     def process_data(self):
-        data_size = self.slam_map.get_shorter_length()
-        if data_size == 0:
+        if not self.slam_map.check_lidar_valid() or len(self.slam_map.odom_data_list) == 0:
             return
-        if self.time_index == time_index_0:
+        if not self.is_initialized:
             self.slam_map._init_map_for_particles()
-            index_start = 1
+            self.is_initialized = True
         else:
-            index_start = 0
-        start_time = time.time()  # 记录函数开始时间
-        grid_msg = self.slam_map._run_slam(index_start, data_size - 1)
-        elapsed_time = time.time() - start_time  # 计算经过的时间
-        grid_msg.header = Header()
-        grid_msg.header.stamp = self.get_clock().now().to_msg()
-        grid_msg.header.frame_id = 'map'
-        # Publish the map
-        self.map_publisher.publish(grid_msg)
-        self.get_logger().info(f'-----map_publisher has published the grid_msg---- {elapsed_time:.2f} seconds')
-        self.time_index += 1
-        self.slam_map.clear_data()
+            start_time = time.time()
+            self.slam_map._run_slam()
+            """
+            grid_msg = self.slam_map.grid_msg
+            grid_msg.header = Header()
+            grid_msg.header.stamp = self.get_clock().now().to_msg()
+            grid_msg.header.frame_id = 'map'
+            """
+            # Publish the map
+            image_msg = self.bridge.cv2_to_imgmsg(self.slam_map.map_img, encoding='bgr8')
+            self.map_publisher.publish(image_msg)
+            elapsed_time = time.time() - start_time  # 计算经过的时间
+            self.get_logger().info(f'-----map_publisher has published the grid_msg---- {elapsed_time:.2f} seconds')
+            self.slam_map.clear_data()
 
 
 def main(args=None):

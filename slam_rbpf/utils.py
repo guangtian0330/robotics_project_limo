@@ -22,7 +22,6 @@ def transformation_scans(scan_data, pose_data, debug = False):
     pose_data = pose_data.flatten()
     if debug:
       print('R:',R)
-      
     # if scan_data.shape != (1080,2):
     #     print(scan_data.shape)
     # assert scan_data.shape == (1080,2)

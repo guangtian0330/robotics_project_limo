@@ -16,7 +16,7 @@ def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose, thresh = 0.45)
          Flag: Indicates if the scan matching is successful or not
          pos: Best pose of the particle after scan matching
     """
-    Flag = False
+    flag = False
     d_pos_total = np.zeros(3)
     d_pose = curr_best_pose - prev_pose #determine sign
     d_pos_total = d_pose
@@ -33,21 +33,21 @@ def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose, thresh = 0.45)
     initial_error = curr_error.copy()
     prev_error = 1e8
     # print(f"Correspondance-------------{Correspondance}")
-    #print(f"curr_error-------------{curr_error}")
+    d_pos_total_prev = d_pos_total
+    #print(f"curr_error={curr_error}, prev_error = {prev_error}")
     while (curr_error < prev_error and iters < 100):
-        d_pos_total_prev = d_pos_total
         prev_iter_pose_trial = prev_pose_trial
         prev_error = curr_error
         d_pose = get_estimate(curr_scan.copy(), trans_scan.copy(), correspondance)
         trans_scan = utils.transformation_scans(trans_scan, d_pose)
         prev_pose_trial = utils.transformation_scans(prev_pose_trial, d_pose)
         d_pos_total = d_pos_total - d_pose
-        #plot_graph(curr_scan,trans_scan,title = str(iters))
         correspondance, _ = get_correspondance(curr_scan, trans_scan)
         curr_error = cal_error(curr_scan, trans_scan, correspondance)
+        #print(f"curr_error-------------{curr_error}, iters = {iters}")
         iters += 1
-    if curr_error < thresh and curr_error < initial_error:
-        Flag = True
+    if curr_error < thresh and curr_error < initial_error or curr_error < thresh / 10:
+        flag = True
     pose = np.zeros((3,))
     pose[:2] = prev_iter_pose_trial[0,:]
     pose[2] = (prev_pose + d_pos_total_prev)[2] 
@@ -57,8 +57,7 @@ def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose, thresh = 0.45)
     R = utils.twoDRotation(d_pose[2])
     d_pose[:2] = -R@d_pose[:2]
     pose_x = curr_best_pose + d_pose
-    #print(pose_x)
-    return Flag, pose_x
+    return flag, pose_x
 
 def get_correspondance(curr_scan, trans_scan):
     """
@@ -67,6 +66,8 @@ def get_correspondance(curr_scan, trans_scan):
     Returns
     -------
     correspondance: Indices of the closest lidar point in curr_scan to trans_scan (n2,)
+    the return matrice lists lines of indexes of each point that has the minimum distance
+    from curr_scan to trans_scan. 
     """
     x_curr = curr_scan[:, 0]
     y_curr = curr_scan[:, 1]
@@ -122,7 +123,7 @@ def get_estimate(curr_scan, trans_scan, correspondance):
 
     return d_pose
 
-def plot_graph(curr_scan,trans_scan,title = 'initial'):
+def plot_graph(curr_scan, trans_scan, title = 'initial'):
     
     fig,axs = plt.subplots()
     axs.scatter(curr_scan[:,0],curr_scan[:,1],label = 'curr-scan',s = 0.5)
