@@ -68,7 +68,7 @@ class SLAM():
         new_particles = []
         for k in range(self.num_p_):
             beta = u + float(k) / self.num_p_
-            while beta > c:
+            while beta > c and j < self.weights_.size - 1:
                 j += 1
                 c += self.weights_[j]
             print(f"_resample ----- Choosed particle[{j}] with weight value = {self.weights_[j]}, c = {c}, beta = {beta}")
@@ -100,8 +100,19 @@ class SLAM():
             #predict_time = time.time()
             print(f"-----------------PARTICLE{i}--------------------------------------------------------------")
             pred_pose, pred_with_noise = p._predict(self.prev_odom, cur_odom, self.mov_cov_)
-            sucess, scan_match_pose =  p._scan_matching(self.init_scan, self.prev_scan, cur_scan, pred_pose)
-            print(f"|----_run_slam pred_pose = {pred_pose}, pred_with_noise = {pred_with_noise}, scan_match_pose = {scan_match_pose}, sucess={sucess}")
+            #sucess, scan_match_pose =  p._scan_matching(self.init_scan, self.prev_scan, cur_scan, pred_pose)
+            #print(f"|----_run_slam pred_pose = {pred_pose}, pred_with_noise = {pred_with_noise}, scan_match_pose = {scan_match_pose}, sucess={sucess}")
+            if p.occupied_pts_.T.size == 0:
+                continue
+            # use motion model for pose estimate
+            est_pose = pred_with_noise
+            measure = models.measurement_model(cur_scan, pred_with_noise, p.occupied_pts_.T, p.MAP_)
+            print(f"|-----measurement_model, current weight{i} is {self.weights_[i]}, measure = {measure}----------------")
+            if measure > def_zero_threshold :
+                p.weight_ = p.weight_ * measure
+            else :
+                print(f"|-----no change for particle{i}, and current weight is {self.weights_[i]}, measure = {measure}-----")
+            """
             if not sucess:
                 if p.occupied_pts_.T.size == 0:
                     continue
@@ -120,6 +131,7 @@ class SLAM():
                 if np.isinf(est_pose).any():
                     print(f"|-----no change for particle{i}, and current weight is {self.weights_[i]}-------")
                     continue
+            """
             self.weights_[i] = p.weight_
             #update_time = time.time()
             p._update_map(cur_scan, est_pose)

@@ -144,7 +144,7 @@ class Particle():
             odom_measurement = models.odometry_model(pose_prev, pose_samples[:,i], prev_odom, cur_odom)
             eta[i] = (prob_measurement) * (odom_measurement)
             mean += pose_samples[:,i] * eta[i]
-            print(f"|----_compute_new_pose: eta for {pose_samples[:,i]} eta={prob_measurement}x{odom_measurement}={eta[i]}, mean={mean}")
+            #print(f"|----_compute_new_pose: eta for {pose_samples[:,i]} eta={prob_measurement}x{odom_measurement}={eta[i]}, mean={mean}")
         #print('Eta: ',np.sum(eta))
         if np.sum(eta) <= def_zero_threshold or np.isnan(np.sum(eta)):
             return np.array([np.inf, np.inf, np.inf])

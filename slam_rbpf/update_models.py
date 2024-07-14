@@ -33,7 +33,7 @@ def measurement_model(data, pose, occupied_indices, MAP):
     map_cordinates[:,0], map_cordinates[:,1] = tf._world_to_map(xy[:,0], xy[:,1] , MAP)
     _, min_dist = match.get_correspondance(occupied_indices, map_cordinates)
     exp = (p_hit) * np.exp(-min_dist / (2 * sigma**2))
-    #print(f"----measurement_model exp={exp}, min_dist={min_dist}")
+    print(f"----measurement_model, mean exp = {np.mean(exp)}\nexp={exp}, min_dist={min_dist}")
     return np.mean(exp)  ###confirm over usage of exp prob,np.exp(prob),
 
 

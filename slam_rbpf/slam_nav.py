@@ -141,7 +141,7 @@ class SLAMNavigationNode(Node):
     def odom_callback(self, msg):
         #self.get_logger().info('Received odom_callback data')
         odom_data = OdomData(msg)
-        self.get_logger().info(f"--------odom_data:-----x={odom_data.x}, y={odom_data.y}, theta={odom_data.theta}-------------")
+        #self.get_logger().info(f"--------odom_data:-----x={odom_data.x}, y={odom_data.y}, theta={odom_data.theta}-------------")
         self.slam_map.add_odo_data(odom_data)
         if self.start_odom is None:
             self.start_odom = odom_data
@@ -197,16 +197,10 @@ class SLAMNavigationNode(Node):
         else:
             start_time = time.time()
             self.slam_map._run_slam()
-            """
-            grid_msg = self.slam_map.grid_msg
-            grid_msg.header = Header()
-            grid_msg.header.stamp = self.get_clock().now().to_msg()
-            grid_msg.header.frame_id = 'map'
-            """
             # Publish the map
             image_msg = self.bridge.cv2_to_imgmsg(self.slam_map.map_img, encoding='bgr8')
             self.map_publisher.publish(image_msg)
-            elapsed_time = time.time() - start_time  # 计算经过的时间
+            elapsed_time = time.time() - start_time
             self.get_logger().info(f'-----map_publisher has published the grid_msg---- {elapsed_time:.2f} seconds')
             self.slam_map.clear_data()
 
