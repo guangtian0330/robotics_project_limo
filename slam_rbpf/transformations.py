@@ -39,6 +39,7 @@ def twoDSmartMinus(new_odom, old_odom, type='pose'):
     R_theta1 = twoDRotation(theta1)
     theta2 = new_odom[2]
     delta_theta = theta2 - theta1
+    delta_theta = (delta_theta + np.pi) % (2 * np.pi) - np.pi
     p1 = old_odom[0:2]
     p2 = new_odom[0:2]
     trans_of_u = np.dot(R_theta1.T, (p2 - p1))
@@ -46,8 +47,8 @@ def twoDSmartMinus(new_odom, old_odom, type='pose'):
         return np.array([trans_of_u[0], trans_of_u[1], delta_theta])
     # if type == 'rot'
     rot_of_u = twoDRotation(delta_theta)
-    return np.array([[rot_of_u[0,0],rot_of_u[0,1],trans_of_u[0]],\
-                     [rot_of_u[1,0],rot_of_u[1,1],trans_of_u[1]],\
+    return np.array([[rot_of_u[0,0], rot_of_u[0,1], trans_of_u[0]],\
+                     [rot_of_u[1,0], rot_of_u[1,1], trans_of_u[1]],\
                      [0            ,   0         ,   1]])
 
 def twoDRotation(theta):

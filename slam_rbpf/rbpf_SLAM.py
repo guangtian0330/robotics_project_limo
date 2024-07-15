@@ -28,7 +28,7 @@ class SLAM():
         self.Neff_thresh_ = Neff_thresh
         self.weights_ = np.ones(num_p) / num_p
         self.mov_cov_ = mov_cov
-        self.lidar_data_list = None
+        self.lidar_data = None
         self.odom_data_list = []
         self.particles_ = []
         self.grid_msg = None
@@ -39,16 +39,16 @@ class SLAM():
         print(f" ----------------------init Neff = {self.Neff}-------------------------")
 
     def add_lidar_data(self, data):
-        self.lidar_data_list = data
+        self.lidar_data = data
 
     def add_odo_data(self, data):
         self.odom_data_list.append(data)
 
     def check_lidar_valid(self):
-        return self.lidar_data_list is not None
+        return self.lidar_data is not None
 
     def clear_data(self):
-        self.lidar_data_list = None
+        self.lidar_data = None
         self.odom_data_list = []
 
     """
@@ -57,7 +57,6 @@ class SLAM():
     def get_odom_at_time(self, lidar_data):
         if not self.odom_data_list:
             return np.array([])
-        #lidar_data = self.lidar_data_list[index]
         odom_idx = np.argmin([np.abs(od.odom_time - lidar_data.scan_time) for od in self.odom_data_list])
         return np.array([self.odom_data_list[odom_idx].x, self.odom_data_list[odom_idx].y, self.odom_data_list[odom_idx].theta])
         
@@ -80,8 +79,8 @@ class SLAM():
         print(f"_resample --EXIT--- self.Neff ={self.Neff}")
 
     def _init_map_for_particles(self):
-        self.init_scan = self.lidar_data_list
-        self.prev_scan = self.lidar_data_list
+        self.init_scan = self.lidar_data
+        self.prev_scan = self.lidar_data
         self.prev_odom = self.get_odom_at_time(self.prev_scan)
         for p in self.particles_:
             p._build_first_map(self.init_scan)
@@ -93,7 +92,7 @@ class SLAM():
         #run_start_time = time.time()
         #for index in range(t0, t_end):
         #start_time = time.time()       
-        cur_scan = self.lidar_data_list
+        cur_scan = self.lidar_data
         cur_odom = self.get_odom_at_time(cur_scan)
         for i, p in enumerate(self.particles_):
             # predict with motion model
@@ -196,6 +195,7 @@ class SLAM():
         #MAP_2_display[abs(log_odds) < 1e-1, :] = [150, 150, 150]
         x_indices = traj[0][valid_indices]
         y_indices = traj[1][valid_indices]
+        y_indices = MAP['sizey'] - 1 - y_indices
         MAP_2_display[y_indices, x_indices] = [70, 70, 228]
         # Save the visualization map
         self.map_img = cv2.resize(MAP_2_display, (700, 700))
