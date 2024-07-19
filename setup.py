@@ -30,7 +30,7 @@ setup(
         (os.path.join('share', package_name, 'urdf'), [os.path.join('urdf', 'limo_gazebo.gazebo')]),
         (os.path.join('share', package_name, 'worlds'), [os.path.join('worlds', 'basic.world')]),
         (os.path.join('share', package_name, 'worlds'), [os.path.join('worlds', 'simple_world.world')]),
-        (os.path.join('share', package_name, 'worlds'), [os.path.join('worlds', 'warehouse.world')]),
+        (os.path.join('share', package_name, 'worlds'), [os.path.join('worlds', 'simple_hallway2.world')]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -43,6 +43,7 @@ setup(
         'console_scripts': [
             'slam_rbpf_nav = slam_rbpf.slam_nav:main',
             'map_display = slam_rbpf.map_display:main',
+            'path_node = slam_rbpf.path_planner:main'
         ],
     },
 )

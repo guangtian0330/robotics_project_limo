@@ -16,15 +16,25 @@ def generate_launch_description():
             output='screen',
     )
 
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        arguments=['-d', rviz_config_dir],
+    map_node = Node(
+            package='slam_rbpf',
+            executable='map_display',
+            name='slam_map_node',
+            parameters=[{'use_sim_time': use_sim_time}],
+            output='screen',
+    )
+
+    path_npde = Node(
+        package='slam_rbpf',
+        executable='path_node',
+        name='path_planner_node',
         parameters=[{'use_sim_time': use_sim_time}],
-        output='screen')
+        output='screen',
+    )
 
     ld = LaunchDescription()
-    #ld.add_action(rviz_node)
+    ld.add_action(path_npde)
     ld.add_action(rbpf_node)
+    ld.add_action(map_node)
+
     return ld

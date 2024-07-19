@@ -19,7 +19,7 @@ def_zero_threshold = 1e-10
 
 class Particle():
     
-    def __init__(self, map_dimension, map_resolution, num_p, delta = 0.005, sample_size = 10):
+    def __init__(self, map_dimension, map_resolution, num_p, delta = 0.005, sample_size = 5):
 
         self._init_map(map_dimension, map_resolution)              
         self.weight_ = 1 / num_p
@@ -32,15 +32,16 @@ class Particle():
         self.log_p_false_ = np.log(3.0/5.0)
         self.p_thresh_ = 0.6
         self.logodd_thresh_ = np.log(self.p_thresh_ / (1-self.p_thresh_))
+        self.key_pose = None
     
-    def _init_map(self, map_dimension=35, map_resolution=0.05):
+    def _init_map(self, map_dimension=30, map_resolution=0.05):
         '''
         map_dimension: map dimention from origin to border
         map_resolution: distance between two grid cells (meters)
         '''
         # Map representation
         MAP= {}
-        MAP['res']   = map_resolution #meters
+        MAP['res']   =  map_resolution #meters
         MAP['xmin']  = -map_dimension  #meters
         MAP['ymin']  = -map_dimension
         MAP['xmax']  =  map_dimension
@@ -60,6 +61,7 @@ class Particle():
         '''
         Builds initial map using lidar scan 'z' at initial pose
         '''
+        
         scan = _data.lidar_data
         obstacle = scan < _data.lidar_max_
         world_x, world_y = _data._polar_to_cartesian(scan, None)
@@ -80,6 +82,7 @@ class Particle():
         
         occupied_map = np.where(self.log_odds_ > self.logodd_thresh_)
         self.occupied_pts_ = np.vstack((occupied_map[0], occupied_map[1]))
+        print(f"-------_build_first_map-------occupied_pts_.T.size = {self.occupied_pts_.T.size}")
 
     def _predict(self, old_odom, new_odom, mov_cov):
         '''
@@ -96,25 +99,28 @@ class Particle():
         pred_with_noise = tf.twoDSmartPlus(pred_pose, noise)
         return pred_pose, pred_with_noise
 
-    def _scan_matching(self, init_scan, prev_scan, cur_scan, cur_pose):
+    def _set_key_data(self, cur_pose):
+        self.key_pose = cur_pose
+
+    def _scan_matching(self, init_scan, key_scan, cur_scan, cur_pose):
         '''
         Performs scan matching and returns (true,scan matched pose) or (false,None)
         '''
-        #print("_scan_matching enter----")
-
+        if (self.key_pose is None):
+            return False, np.zeros((3,))
         curr_scan_data = cur_scan.lidar_data - init_scan.lidar_data
-        prev_scan_data = prev_scan.lidar_data - init_scan.lidar_data
+        key_scan_data = key_scan.lidar_data - init_scan.lidar_data
         curr_coordinates = utils.dist_to_xy(curr_scan_data, cur_scan.lidar_angles_)
-        prev_coordinates = utils.dist_to_xy(prev_scan_data, prev_scan.lidar_angles_)
-        prev_pose = self.trajectory_[:, -1]
+        key_coordinates = utils.dist_to_xy(key_scan_data, key_scan.lidar_angles_)
         flag, updated_pose = matching.scan_matcher(
-            prev_coordinates.copy(), prev_pose.copy(), curr_coordinates.copy(), cur_pose.copy())
+            key_coordinates.copy(), self.key_pose.copy(), curr_coordinates.copy(), cur_pose.copy())
         return flag, updated_pose
     
     
     def _sample_poses_in_interval(self, scan_match_pose):
         '''
         scan matched pose: (3,1)
+        Create a list of samples near the scan_match_pose
         Returns list of samples (3,sample_size)
         '''
         #print("_sample_poses_in_interval enter----")
@@ -125,8 +131,8 @@ class Particle():
         samples = samples + scan_match_pose
         #print("----_sample_poses_in_interval exit")
         return samples
-        
-    
+
+
     def _compute_new_pose(self, data_, prev_odom, cur_odom, pose_samples):
         '''
         Computes mean, cov, weight factor from pose_samples
@@ -138,7 +144,6 @@ class Particle():
         variance = np.zeros((3,3))
         eta = np.zeros(pose_samples.shape[1])
         pose_prev = self.trajectory_[:,-1]
-        
         for i in range(pose_samples.shape[1]):
             prob_measurement = models.measurement_model(data_, pose_samples[:,i], self.occupied_pts_.T, self.MAP_)
             odom_measurement = models.odometry_model(pose_prev, pose_samples[:,i], prev_odom, cur_odom)

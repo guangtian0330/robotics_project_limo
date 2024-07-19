@@ -17,36 +17,34 @@ def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose, thresh = 0.45)
          pos: Best pose of the particle after scan matching
     """
     flag = False
-    d_pos_total = np.zeros(3)
-    d_pose = curr_best_pose - prev_pose #determine sign
-    d_pos_total = d_pose
+    d_pos_total = curr_best_pose - prev_pose #determine sign
     iters = 0
-    curr_scan = utils.transformation_scans(curr_scan, curr_best_pose)
-    prev_pose_trial = prev_pose.copy()
-    prev_scan = utils.transformation_scans(prev_scan, prev_pose)
-    trans_scan = utils.transformation_scans(prev_scan, d_pose)
-    prev_pose_trial = utils.transformation_scans(prev_pose_trial[:2][None,:], d_pose)
+    curr_scan = utils.transformation_scans(curr_scan, curr_best_pose) # transform the scan coordinates based on current pose
+    prev_scan = utils.transformation_scans(prev_scan, prev_pose)  # transform the previous scan coor based on prev pose.
+    trans_scan = utils.transformation_scans(prev_scan, d_pos_total) # transform previous scan based on the change of pose
+    prev_pose_trial = utils.transformation_scans(prev_pose[:2][None,:], d_pos_total)
 
-    #plot_graph(curr_scan,trans_scan
-    correspondance, _ = get_correspondance(curr_scan, trans_scan)
-    curr_error = cal_error(curr_scan, trans_scan, correspondance)
+    d_pos_total_prev = d_pos_total
+    prev_iter_pose_trial = prev_pose_trial
+    similarity, _ = get_similarity(curr_scan, trans_scan)
+    curr_error = cal_error(curr_scan, trans_scan, similarity)
     initial_error = curr_error.copy()
     prev_error = 1e8
-    # print(f"Correspondance-------------{Correspondance}")
-    d_pos_total_prev = d_pos_total
-    #print(f"curr_error={curr_error}, prev_error = {prev_error}")
+
+    print(f"scan_matcher: prev_pose = {prev_pose}, curr_best_pose = {curr_best_pose}, curr_error={curr_error}")
     while (curr_error < prev_error and iters < 100):
+        d_pos_total_prev = d_pos_total
         prev_iter_pose_trial = prev_pose_trial
         prev_error = curr_error
-        d_pose = get_estimate(curr_scan.copy(), trans_scan.copy(), correspondance)
+        d_pose = get_estimate(curr_scan, trans_scan, similarity)
         trans_scan = utils.transformation_scans(trans_scan, d_pose)
         prev_pose_trial = utils.transformation_scans(prev_pose_trial, d_pose)
         d_pos_total = d_pos_total - d_pose
-        correspondance, _ = get_correspondance(curr_scan, trans_scan)
-        curr_error = cal_error(curr_scan, trans_scan, correspondance)
-        #print(f"curr_error-------------{curr_error}, iters = {iters}")
+        similarity, _ = get_similarity(curr_scan, trans_scan)
+        curr_error = cal_error(curr_scan, trans_scan, similarity)
+        print(f"curr_error-------------{curr_error}, iters = {iters}")
         iters += 1
-    if curr_error < thresh and curr_error < initial_error or curr_error < thresh / 10:
+    if curr_error < thresh and curr_error < initial_error:
         flag = True
     pose = np.zeros((3,))
     pose[:2] = prev_iter_pose_trial[0,:]
@@ -55,17 +53,18 @@ def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose, thresh = 0.45)
     d_pose = pose - prev_pose
     d_pose[2] = -d_pose[2]
     R = utils.twoDRotation(d_pose[2])
-    d_pose[:2] = -R@d_pose[:2]
-    pose_x = curr_best_pose + d_pose
-    return flag, pose_x
+    d_pose[:2] = -R @ d_pose[:2]
+    updated_pose = curr_best_pose + d_pose
+    print(f"scan_matcher: is matched={flag}, curr_best_pose{curr_best_pose} --> updated_pose{updated_pose}")
+    return flag, updated_pose
 
-def get_correspondance(curr_scan, trans_scan):
+def get_similarity(curr_scan, trans_scan):
     """
     curr_scan:  Lidar scan at current time step (n1,2)
     trans_scan: Transformed previous scan based on best known pose (n2,2)
     Returns
     -------
-    correspondance: Indices of the closest lidar point in curr_scan to trans_scan (n2,)
+    similarity: Indices of the closest lidar point in curr_scan to trans_scan (n2,)
     the return matrice lists lines of indexes of each point that has the minimum distance
     from curr_scan to trans_scan. 
     """
@@ -75,27 +74,27 @@ def get_correspondance(curr_scan, trans_scan):
     y_trans = trans_scan[:, 1][:, None]
 
     dist = np.square(x_curr - x_trans) + np.square(y_curr - y_trans)
-    correspondance = np.argmin(dist, axis = 1)
+    similarity = np.argmin(dist, axis = 1)
     min_dist = np.amin(dist, axis = 1)
 
-    assert correspondance.shape[0] == x_trans.shape[0]
-    return correspondance, min_dist
+    assert similarity.shape[0] == x_trans.shape[0]
+    return similarity, min_dist
 
-def cal_error(curr_scan, trans_scan, Correspondance):
+def cal_error(curr_scan, trans_scan, similarity):
     """
     curr_scan:  Lidar scan at current time step (n,2)
     trans_scan: Transformed previous scan based on best known pose (n,2)
-    correspondance: Indices of the closest lidar point in curr_scan to trans_scan (n,)
+    similarity: Indices of the closest lidar point in curr_scan to trans_scan (n,)
     Returns
     -------
     Error: L2 dist between corresponding points
     """
-    error = np.linalg.norm(curr_scan[Correspondance,:] - trans_scan, axis = 1)
+    error = np.linalg.norm(curr_scan[similarity,:] - trans_scan, axis = 1)
     error = np.mean(error)
     #print(error)
     return error
  
-def get_estimate(curr_scan, trans_scan, correspondance):
+def get_estimate(curr_scan, trans_scan, similarity):
     """
     curr_scan:  Lidar scan at current time step (n,2)
     trans_scan: Transformed previous scan based on best known pose (n,2)
@@ -108,9 +107,9 @@ def get_estimate(curr_scan, trans_scan, correspondance):
     trans_mean = np.mean(trans_scan, axis = 0)
     #print(f"curr_mean = {curr_mean}")
     #print(f"trans_mean = {trans_mean}")
-    curr_scan -= curr_mean
-    trans_scan -= trans_mean
-    corres_scan = curr_scan[correspondance,:]
+    curr_scan = curr_scan.copy() - curr_mean
+    trans_scan = trans_scan.copy() - trans_mean
+    corres_scan = curr_scan[similarity,:]
     assert corres_scan.shape == trans_scan.shape
     
     W = np.dot(corres_scan.T, trans_scan)
