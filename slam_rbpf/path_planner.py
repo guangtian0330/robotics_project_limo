@@ -12,6 +12,7 @@ from nav_msgs.msg import OccupancyGrid
 from collections import deque
 from scipy.spatial.transform import Rotation as R
 from std_msgs.msg import Int32MultiArray
+import random
 
 
 # Constants
@@ -53,9 +54,10 @@ class PathPublisher(Node):
         self.robotic_pose = []
         self.target_pose = []
         self.path = []
+        self.latest_trajectory = []
         self.explore_route = []
-        self.global_map = np.zeros((MAP_SIZE, MAP_SIZE), dtype=bool)
-        self.local_map = None
+        self.global_record = set()
+        self.local_maps = []
         self.draw_map_pict()
         
     def publish_path(self, path):
@@ -63,7 +65,7 @@ class PathPublisher(Node):
         path_msg = Path()
         path_msg.header.frame_id = "path"
         path_msg.header.stamp = self.get_clock().now().to_msg()
-
+        self.get_logger().info(f"publish_path: path = {path}, len(self.path) = {len(path)}")
         # Convert the path to poses
         for position in path:
             pose = PoseStamped()
@@ -91,38 +93,41 @@ class PathPublisher(Node):
         origin_y = msg.info.origin.position.y
         orientation = msg.info.origin.orientation
         euler_angles = R.from_quat([orientation.x, orientation.y, orientation.z, orientation.w]).as_euler('xyz', degrees=False)
-        theta = euler_angles[2]
-        self.get_logger().info(f"map_callback grid map process index={occupied_indices}")
-        self.get_logger().info(f"map_callback y_wall_indices={y_wall_indices}, x_wall_indices={x_wall_indices}")
-        self.get_logger().info(f"map_callback width = {self.width}, height = {self.height}, origin_x={origin_x}, origin_y={origin_y}, theta={theta}")
+        theta = round(-euler_angles[2]/(np.pi/2)) * (np.pi/2) 
+        #self.get_logger().info(f"map_callback y_wall_indices={y_wall_indices}, x_wall_indices={x_wall_indices}")
+        #self.get_logger().info(f"map_callback width = {self.width}, height = {self.height}, origin_x={origin_x}, origin_y={origin_y}, theta={theta}")
         self.update_map(x_wall_indices, y_wall_indices, origin_x, origin_y, theta)
 
         self.update_map_picture()
         self.update_path_picture()
 
     def map_process_callback(self, process_msg):
-        index, direction = process_msg.data
-        col, row = self.path[index]
-        theta = direction * np.pi / 2
-        self.get_logger().info(f"map_process_callback  col = {col}, row = {row}, theta = {theta}")
+        index, res = process_msg.data
+        self.get_logger().info(f"map_process_callback: index = {index}, self.path = {(self.path)}, res={res}")
+        self.latest_trajectory.append(self.path[index]) # Add the explored point to the route.
+        self.global_record.add(self.path[index])
+        if index == len(self.path) - 1:
+            # Exploration is stopped and the path has all been explored.
+            # Mark this area as explored in the global map.
+            for map_entry in self.local_maps:
+                local_map = map_entry['local_map']
+                min_x, min_y = map_entry['offset']
+                self.get_logger().info(f"map_process_callback: min_x, min_y = {min_x, min_y}, local_map = {local_map}")
+                for row in local_map:
+                    if len(row) == 2:
+                        x, y = row
+                        global_x = x + min_x
+                        global_y = y + min_y
+                        # Add the coordinate to the global_record
+                        self.global_record.add((global_x, global_y))
+            self.local_maps.clear()
+            self.explore_route.append(self.latest_trajectory)
+            self.get_logger().info(f"update_map. global_record = {self.global_record}")
+            self.path.clear()
+        elif res == 1:
+            self.explore_route.append(self.latest_trajectory)
+            self.path.clear()
 
-        dx = self.relative_obstacle_pos[:, 0] - col
-        dy = -(self.relative_obstacle_pos[:, 1] - row)
-        obs_angles = np.arctan2(dy, dx) - theta
-        obs_angles = (obs_angles + np.pi) % (2 * np.pi) - np.pi
-        valid_indices = (-np.pi / 2 <= obs_angles) & (obs_angles <= np.pi / 2) # Filter all obstacles that are in the front
-        filtered_obstacle_pos = self.relative_obstacle_pos[valid_indices]
-        removed_obstacles = self.relative_obstacle_pos[~valid_indices]         # Filter all the obstacles that are in the back
-        self.get_logger().info(f"self.relative_obstacle_pos = {self.relative_obstacle_pos}")
-        self.get_logger().info(f"filtered_obstacle_pos = {filtered_obstacle_pos}")
-        self.get_logger().info(f"removed_obstacles should be marked as explored : {removed_obstacles}")
-
-        # Mark the explored obstacles as True in the global map.
-        for obs_x, obs_y in removed_obstacles:
-            if 0 <= obs_y < self.global_map.shape[0] and 0 <= obs_x < self.global_map.shape[1]:
-                self.global_map[obs_y, obs_x] = True
-        self.relative_obstacle_pos = filtered_obstacle_pos
-        self.explore_route.append(self.path[index]) # Add the explored point to the route.
 
     def draw_map_pict(self):
         self.map_image = np.ones((MAP_SIZE_PICT, MAP_SIZE_PICT, 3), dtype=np.uint8) * 200
@@ -139,25 +144,29 @@ class PathPublisher(Node):
         grid_y_indices = y_wall_indices // self.cell_size_y
         combined_indices = np.vstack((grid_x_indices, grid_y_indices)).T
         self.obstacle_pos = np.unique(combined_indices, axis=0)
+        #self.get_logger().info(f"update_map. grid_x_indices = {grid_x_indices}, grid_y_indices = {grid_y_indices},"
+        #                       f"combined_indices = {combined_indices}, self.obstacle_pos = {self.obstacle_pos}")
 
-        # Remove all repeated obstacles.
-        #current_obstacles_set = set(map(tuple, self.all_obstacle_pos))
-        #new_obstacles_set = set(map(tuple, new_obstacles))
-        #self.new_obstacle_pos = np.array(list(new_obstacles_set - current_obstacles_set))
-        
         self.robotic_pose = [int(pose_x // self.cell_size_x), int(pose_y // self.cell_size_y), rotation]
-        self.target_pose, parents, min_x, min_y = self.find_farthest_obstacle(self.robotic_pose)
-        if self.target_pose is None:
+        self.create_minimal_grid_map()
+        self.target_pose, parents = self.find_random_free_space(self.robotic_pose)
+        # Need to differentiate if this is a death end 
+        # Or everything has been explored already.
+        # Or there's just no obstacle
+        if self.target_pose is None and len(self.explore_route) > 0:
+            self.get_logger().info(f"No target pose found, but there are records in explore_route list.\nself.path = {self.path}")
+            self.path = self.explore_route.pop()[0]
             self.path.reverse()
-            self.publish_path([self.path])     # If there's no way out, then reverse.
-            filtered_explore_route = [point for point in self.explore_route if point not in self.path]
-            self.explore_route = filtered_explore_route # If reversed, remove the last route.
+            self.publish_path([self.path])              # If there's no way out, then reverse.
             return
-        self.path = self.build_path(parents, self.robotic_pose, self.target_pose, min_x, min_y )
+        elif self.target_pose is None:
+            self.get_logger().info(f"No target pose found and explore_rout is empty. Exploration done.")
+            return
+        self.path = self.build_path(parents, self.robotic_pose, self.target_pose)
         self.publish_path(self.path)
-        self.get_logger().info(f"Grided coordinates for all obstacles = {self.obstacle_pos}")
-        self.get_logger().info(f"Grided coordinates for robotic_pose = {self.robotic_pose}")
-        self.get_logger().info(f"Grided coordinates for target_pose = {self.target_pose}")
+        #self.get_logger().info(f"Grided coordinates for all obstacles = {self.obstacle_pos}")
+        #self.get_logger().info(f"Grided coordinates for robotic_pose = {self.robotic_pose}")
+        #self.get_logger().info(f"Grided coordinates for target_pose = {self.target_pose}")
 
     def update_path_picture(self):
         for pos in self.path:
@@ -189,40 +198,74 @@ class PathPublisher(Node):
         target_center_y = int((self.target_pose[1] + 0.5) * GRPD_SIZE_PICT)
         cv2.circle(self.map_image, (target_center_x, target_center_y), radius, (0, 200, 0), -1)
         cv2.imshow('Gridworld: Limo with Obstacles', self.map_image)
-        #add_goal(map_image, goal_position)
 
-    def find_farthest_obstacle(self, start):
-        (min_x, min_y)= self.create_minimal_grid_map()
-        rows, cols = self.local_map.shape
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # 上、下、左、右
+    def find_farthest_free_space(self, start):
+        (min_x, min_y)= self.local_maps[-1]['offset']
+        local_map = self.local_maps[-1]['local_map']
+        rows, cols = local_map.shape
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # up、down, left、right
         visited = set()
         queue = deque([(int(start[0]) - min_x, int(start[1]) - min_y, 0)])  # (x, y, distance)
         parents = {}
         max_distance = 0
         farthest_free = None
-        self.get_logger().info(f"self.local_map = {self.local_map}, rows={rows}, cols={cols}, start = {start}")
+        self.get_logger().info(f"local_map = {local_map}, rows={rows}, cols={cols}, start = {start}")
         while queue:
             x, y, dist = queue.popleft()
             for dx, dy in directions:
                 nx, ny = x + dx, y + dy
-                self.get_logger().info(f"x={x},y={y}, nx={nx},ny={ny}")
+                #self.get_logger().info(f"x={x},y={y}, nx={nx},ny={ny}")
                 if 0 <= nx < cols and 0 <= ny < rows and (nx, ny) not in visited:
-                    self.get_logger().info(f"exploring self.local_map[{ny},{nx}]={self.local_map[ny, nx]}, dist={dist},"
-                                           f"and in global map[{y + min_y},{x + min_x}]={self.global_map[y + min_y][x + min_x]}")
+                    #self.get_logger().info(f"exploring local_map[{ny},{nx}]={local_map[ny, nx]}, dist={dist},")
+                    visited.add((nx, ny))
+                    # Note down the parents of current coordinates used for path planning.
+                    parents[(nx, ny)] = (x, y)
+                    # self.global_record having this coordinate indicates that this place has been explored.
+                    # if it's true then this place doesn't count.
+                    #self.get_logger().info(f"Testing {(nx + min_x, ny + min_y)} in or not in self.global_record.")
+                    if local_map[ny, nx] == 0:
+                        #self.get_logger().info(f"Encounter an place that has not been visited.")
+                        if dist + 1 > max_distance and ((nx + min_x, ny + min_y) not in self.global_record):
+                            max_distance = dist + 1
+                            farthest_free = (nx + min_x, ny + min_y)
+                        queue.append((nx, ny, dist + 1))
+        return farthest_free, parents
+
+    def find_random_free_space(self, start):
+        min_x, min_y = self.local_maps[-1]['offset']
+        local_map = self.local_maps[-1]['local_map']
+        rows, cols = local_map.shape
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        visited = set()
+        queue = deque([(int(start[0]) - min_x, int(start[1]) - min_y, 0)])
+        free_spaces = []
+        parents = {}
+
+        while queue:
+            x, y, dist = queue.popleft()
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < cols and 0 <= ny < rows and (nx, ny) not in visited:
                     visited.add((nx, ny))
                     parents[(nx, ny)] = (x, y)
-                    if not self.global_map[y + min_y][x + min_x] and self.local_map[ny, nx] != 0:  # Encounter an obstacle
-                        self.get_logger().info(f"Encounter an obstacle that has not been visited.")
-                        if dist + 1 > max_distance:
-                            max_distance = dist + 1
-                            farthest_free = (x + min_x, y + min_y)
-                    else:
+                    global_coord = (nx + min_x, ny + min_y)
+                    if local_map[ny, nx] == 0:
+                        if global_coord not in self.global_record:
+                            free_spaces.append(global_coord)
                         queue.append((nx, ny, dist + 1))
 
-        return farthest_free, parents, min_x, min_y
+        if free_spaces:
+            chosen_space = random.choice(free_spaces)
+            self.get_logger().info(f"Chosen random free space:{chosen_space}")
+            return chosen_space, parents
+        else:
+            self.get_logger().info("No free space available.")
+            return None, parents
 
-    def build_path(self, parents, start_pos, target_pos, min_x, min_y):
+
+    def build_path(self, parents, start_pos, target_pos):
         path = []
+        (min_x, min_y)= self.local_maps[-1]['offset']
         if target_pos:
             step = (target_pos[0] - min_x, target_pos[1] - min_y)
             while step != (start_pos[0] - min_x, start_pos[1] - min_y):
@@ -238,6 +281,7 @@ class PathPublisher(Node):
         global_y = local_y + self.min_y
         return global_x, global_y
 
+    # Create a minimum local map that involves all relavant obstacles.
     def create_minimal_grid_map(self):
         self.get_logger().info(f"-----build_path  obstacle_pos = {self.obstacle_pos}")
         robot_x, robot_y, robot_theta = self.robotic_pose
@@ -245,55 +289,56 @@ class PathPublisher(Node):
         for obs in self.obstacle_pos:
             obs_x, obs_y = obs
             dx = obs_x - robot_x
-            dy = -(obs_y - robot_y)
+            dy = obs_y - robot_y
             distance = np.sqrt(dx**2 + dy**2)
             if distance > 8:
                 continue
             obs_angle = np.arctan2(dy, dx) - robot_theta
             obs_angle = (obs_angle + np.pi) % (2 * np.pi) - np.pi
-            if -np.pi / 2 <= obs_angle <= np.pi / 2:
-                self.relative_obstacle_pos.append([obs_x, obs_y])
-        self.relative_obstacle_pos = np.array(self.relative_obstacle_pos)
+            self.get_logger().info(f"-----build_path obs={obs} -> robotic_pose={self.robotic_pose}:"
+                                   f"distance:{distance}, dy:{dy},dx:{dx}, obs_angle:{np.arctan2(dy, dx)}, angle_diff:{obs_angle}")
 
-        # Calculate boundaries
-        min_x = min(np.min(self.relative_obstacle_pos[:, 0]), self.robotic_pose[0])
-        max_x = max(np.max(self.relative_obstacle_pos[:, 0]), self.robotic_pose[0])
-        min_y = min(np.min(self.relative_obstacle_pos[:, 1]), self.robotic_pose[1])
-        max_y = max(np.max(self.relative_obstacle_pos[:, 1]), self.robotic_pose[1])
+            if -np.pi / 2 <= obs_angle <= np.pi / 2: # Only mind the obstacles in the front.
+                # DONT Consider if the obstacles have ever been explored before.
+                # Exclude existing obstacles would affect the path to be planned.
+                self.relative_obstacle_pos.append([obs_x, obs_y])
+    
+        self.relative_obstacle_pos = np.array(self.relative_obstacle_pos)
+        self.get_logger().info(f"-----build_path  relative_obstacle_pos = {self.relative_obstacle_pos}")
+        if self.relative_obstacle_pos.size == 0:  # Check if there is no obstacle
+            self.get_logger().info("No relevant obstacles. Need to redraw the map.")
+            min_x = max(self.robotic_pose[0] - 4, 0)
+            min_y = max(self.robotic_pose[1] - 4, 0)
+            max_x = min(self.robotic_pose[0] + 4, MAP_SIZE)
+            max_y = min(self.robotic_pose[1] + 4, MAP_SIZE)
+
+        else:
+            # Calculate boundaries
+            min_x = min(np.min(self.relative_obstacle_pos[:, 0]), self.robotic_pose[0])
+            max_x = max(np.max(self.relative_obstacle_pos[:, 0]), self.robotic_pose[0])
+            min_y = min(np.min(self.relative_obstacle_pos[:, 1]), self.robotic_pose[1])
+            max_y = max(np.max(self.relative_obstacle_pos[:, 1]), self.robotic_pose[1])
 
         # Create the map
-        width = int(max_x - min_x + 1)
-        height = int(max_y - min_y + 1)
-        self.local_map = np.zeros((height, width), dtype=int)
-        
+        height = max_y - min_y + 1
+        width = max_x - min_x + 1
+        local_map = np.zeros((int(max_y - min_y + 1), int(max_x - min_x + 1)), dtype=int)
         # add obstacles
-        for x, y in self.relative_obstacle_pos:
+        for x, y in self.obstacle_pos:
             grid_x = x - min_x
             grid_y = y - min_y
-            self.local_map[grid_y, grid_x] = 1
-
-        return (min_x, min_y)
-
-"""
-def mouse_click(event, x, y, flags, param):
-    global robot_position, goal_position
-    if event == cv2.EVENT_LBUTTONDOWN:
-        col, row = x // GRID_SIZE, y // GRID_SIZE
-        if (row, col) not in obstacle_positions:
-            goal_position = (row, col)
-            update_map(param)
-    if event == cv2.EVENT_RBUTTONDOWN:
-        col, row = x // GRID_SIZE, y // GRID_SIZE
-        if (row, col) not in obstacle_positions:
-
-            robot_position = (row, col)
-            goal_position = (row, col)
-            update_map(param)
-"""
+            if 0 <= grid_x < width and 0 <= grid_y < height:
+                local_map[grid_y, grid_x] = 1
+        local_map[self.robotic_pose[1] - min_y, self.robotic_pose[0] - min_x] = 2
+        local_map_entry = {
+            'local_map': local_map,
+            'offset': (min_x, min_y)
+        }
+        self.local_maps.append(local_map_entry)
 
 # Main function
 def main(args=None):
-    rclpy.init(args=args)  # Initialize ROS 2
+    rclpy.init(args=args)       # Initialize ROS 2
     ros_node = PathPublisher()  # Create the ROS 2 node
     while rclpy.ok():
         rclpy.spin_once(ros_node, timeout_sec=0)
