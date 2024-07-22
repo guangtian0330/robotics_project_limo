@@ -73,7 +73,7 @@ class LidarData:
         return lidar_ptx, lidar_pty
 
 
-    def _detect_front_obstacles(self, distance_threshold=0.5, window_angle_rad=np.pi / 3):
+    def _detect_front_obstacles(self, distance_threshold=0.5, window_angle_rad=np.pi / 4):
         window_size = int(window_angle_rad / self.angle_increment)
         half_window_size = int(window_size / 2)
         center_index = len(self.lidar_data) // 2
@@ -200,7 +200,7 @@ class SLAMNavigationNode(Node):
         self.slam_map = SLAM(mov_cov) # initiate a SLAM.
         self.is_initialized = False
         self.timer = self.create_timer(1, self.process_data)
-        self.timer = self.create_timer(2, self.move_path)
+        self.timer = self.create_timer(1, self.move_path)
         self.move_count = 0
         self.key_scene_set = False
 
@@ -282,33 +282,11 @@ class SLAMNavigationNode(Node):
         if (angle_to_rotate > self.turn_threshold):
             direction = angle_to_turn / angle_to_rotate
             self.rotate(angle_to_rotate, direction)
-            """
-            if direction < 0 :
-                obs_distance = right_obstacle
-                self.get_logger().info(f"should turn right but right obs_distance = {obs_distance}")
-            else:
-                obs_distance = left_obstacle
-                self.get_logger().info(f"should turn left but left obs_distance = {obs_distance}")
-
-            if obs_distance > 0.4 or (obs_distance > 0.35 and angle_to_rotate < np.pi/4):
-                self.rotate(angle_to_rotate, direction)
-            else:
-                self.get_logger().info(f"Obstacle found on the side, this trip is interrupted.")
-                self.target_reached = True
-                self.new_map_sent = False
-                res = 1
-                msg.data = [self.map_index, res]
-                self.map_index = 0
-                self.process_publisher_.publish(msg)
-            """
         else :
             distance_to_move = self.get_distance(self.current_pos, target_pos)
             res = 0
-            #if left_obstacle <= 0.35:
-            #    self.rotate(np.pi/15, -1)
-            #elif right_obstacle <= 0.35:
-            #    self.rotate(np.pi/15, 1)
-            if front_obstacle * 0.86 < distance_to_move:
+            safe_distance = front_obstacle * 0.86
+            if safe_distance < 0.4:
                 # Found an unexpected obstacle. it's either a mistake in path planning or dynamic change
                 # either way, this trip should be terminated and wait for another map planning.
                 self.get_logger().info(f"Obstacle found, this trip is interrupted.")
@@ -317,9 +295,17 @@ class SLAMNavigationNode(Node):
                 res = 1
                 msg.data = [self.map_index, res]
                 self.map_index = 0
+                self.process_publisher_.publish(msg)
             else:
+                if left_obstacle <= 0.35 and right_obstacle > left_obstacle:
+                    angular = -0.1 # Too close to the left, turn right a bit.
+                elif right_obstacle <= 0.35 and left_obstacle > right_obstacle:
+                    angular = 0.1  # Too close to the right, turn left a bit.
+                else:
+                    angular = 0.0
+                distance_to_move = min(distance_to_move, safe_distance - 0.31) # 0.31 is the minimum distance where the obstacle can be detected.
                 self.get_logger().info(f"obstacle_distance={front_obstacle}, distance_to_move:{distance_to_move}")
-                self.go_straight(distance_to_move)
+                self.go_straight(distance_to_move, angular)
                 if self.map_index == len(self.path.poses) - 1:
                     res = 1
                 msg.data = [self.map_index, res]
@@ -328,8 +314,9 @@ class SLAMNavigationNode(Node):
                 cur_x = current_pose.pose.position.y * GRID_SIZE
                 cur_y = current_pose.pose.position.x * GRID_SIZE
                 self.current_pos = [cur_x, cur_y]
+                self.process_publisher_.publish(msg)
+
             # Send current position and res to path planner to update the map record.
-            self.process_publisher_.publish(msg)
 
     # Take one step ahead along the path
     def get_angle(self, current_pose, target_pose, current_angle_rad):
@@ -371,14 +358,14 @@ class SLAMNavigationNode(Node):
         twist_msg.angular.z = angular_speed
         self.vel_publisher.publish(twist_msg)
 
-    def go_straight(self, distance):
+    def go_straight(self, distance, rotate):
         self.get_logger().info("-------------go straight-------------")
         self.distance_to_move = distance
         self.start_odom = None
         self.status = STATUS_TYPE_FORWARD
         twist_msg = Twist()
         twist_msg.linear.x = 0.2
-        twist_msg.angular.z = 0.0
+        twist_msg.angular.z = rotate
         self.vel_publisher.publish(twist_msg)
 
     def stop_moving(self):
