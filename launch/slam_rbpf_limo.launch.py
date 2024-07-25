@@ -32,9 +32,18 @@ def generate_launch_description():
         output='screen',
     )
 
+
+    vel_node = Node(
+            package='slam_rbpf',
+            executable='vel_node',
+            name='velocity_publisher_node',
+            output='screen',
+    )
+
     ld = LaunchDescription()
     ld.add_action(path_npde)
     ld.add_action(rbpf_node)
     ld.add_action(map_node)
+    ld.add_action(vel_node)
 
     return ld

@@ -43,6 +43,7 @@ setup(
         'console_scripts': [
             'slam_rbpf_nav = slam_rbpf.slam_nav:main',
             'map_display = slam_rbpf.map_display:main',
+            'vel_node = slam_rbpf.vel_cmd_node:main',
             'path_node = slam_rbpf.path_planner:main'
         ],
     },
