@@ -23,14 +23,13 @@ def_zero_threshold = 1e-15
 
 
 class SLAM():
-    def __init__(self, mov_cov, num_p = 10, map_resolution = 0.05, map_dimension = 30, Neff_thresh = 3):
+    def __init__(self, mov_cov, num_p = 10, map_resolution = 0.05, map_dimension = 20, Neff_thresh = 3):
         self.num_p_ = num_p
         self.Neff_ = 0
         self.Neff_thresh_ = Neff_thresh
         self.weights_ = np.ones(num_p) / num_p
         self.mov_cov_ = mov_cov
-        self.set_key_scan = False
-        self.key_scan = None
+
         self.lidar_data = None
         self.odom_data_list = []
         self.particles_ = []
@@ -96,7 +95,7 @@ class SLAM():
         '''
         #run_start_time = time.time()
         #for index in range(t0, t_end):
-        #start_time = time.time()       
+        #start_time = time.time()    
         cur_scan = self.lidar_data
         cur_odom = self.get_odom_at_time(cur_scan)
         for i, p in enumerate(self.particles_):
@@ -104,23 +103,8 @@ class SLAM():
             #predict_time = time.time()
             print(f"-----------------PARTICLE{i}--------------------------------------------------------------")
             pred_pose, pred_with_noise = p._predict(self.prev_odom, cur_odom, self.mov_cov_)
+            #is_matched, scan_match_pose =  p._scan_matching(self.init_scan, self.prev_scan, cur_scan, pred_pose)
             is_matched = False
-            # It's initially supposed to set a key scan and pose for each particle.
-            if self.set_key_scan:
-                self.key_scan = cur_scan
-                print(f"---set key data for particle{i}-----------------")
-                p._set_key_data(pred_with_noise)
-            elif self.key_scan is not None and np.linalg.norm(np.array(cur_odom[:2]) - np.array(self.prev_odom[:2])) >= 0.01:
-                # Use the key scan and key pose to do the match for loop_closure detection.
-                # It has to be sure that the limo should be moving.
-                print(f"---scan_matching started-----------------")
-                #is_matched, scan_match_pose =  p._scan_matching(self.init_scan, self.key_scan, cur_scan, pred_pose)
-            #print(f"|----_run_slam pred_pose = {pred_pose}, pred_with_noise = {pred_with_noise}, scan_match_pose = {scan_match_pose}, sucess={sucess}")
-            if is_matched: 
-                # if it's detected matched with the key scan, create a list of samples and calculate the improved poses.
-                #sample_poses = p._sample_poses_in_interval(scan_match_pose)
-                #est_pose = p._compute_new_pose(cur_scan, self.prev_odom, cur_odom, sample_poses)
-                is_matched = np.isfinite(est_pose).all()
             if not is_matched:
                 if p.occupied_pts_.T.size == 0:
                     print(f"---p.occupied_pts_.T.size = {p.occupied_pts_.T.size}-----------------")
@@ -130,21 +114,23 @@ class SLAM():
                 measure = models.measurement_model(cur_scan, pred_with_noise, p.occupied_pts_.T, p.MAP_)
                 print(f"|-----measurement_model, current weight{i} is {self.weights_[i]}, measure = {measure}----------------")
                 if measure > def_zero_threshold :
+                    # the weight update is based on the measurement likelihood from measurement model.
                     p.weight_ = p.weight_ * measure
                 else :
                     print(f"|-----no change for particle{i}, and current weight is {self.weights_[i]}, measure = {measure}-----")
                     continue
-            else: # if the current pose mactches the key pose and scan, then update the key scan and pose.
-                self.key_scan = cur_scan
-                p._set_key_data(pred_with_noise)
+            else:
+                print(f"is matched.  going to calculate sample poses")
+                #sample_poses = p._sample_poses_in_interval(scan_match_pose)
+                #est_pose = p._compute_new_pose(cur_scan, self.prev_odom, cur_odom, sample_poses)
+
             self.weights_[i] = p.weight_
             #update_time = time.time()
             p._update_map(cur_scan, est_pose)
             #update_elapsed = time.time() - update_time
             print(f"|-----_update_map  finished ------ self.weights_[{i}] = {self.weights_[i]}")
             print(f"----------------------------------------------------------------------------------------")
-        if self.set_key_scan:
-            self.set_key_scan = False
+
         self.Neff = 1 / np.sum(self.weights_ ** 2)
         print(f"Calculating the neff value after running all particles.------ self.Neff = {self.Neff}")
         if self.Neff < self.Neff_thresh_:

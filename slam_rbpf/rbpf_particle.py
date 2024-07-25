@@ -32,7 +32,6 @@ class Particle():
         self.log_p_false_ = np.log(3.0/5.0)
         self.p_thresh_ = 0.6
         self.logodd_thresh_ = np.log(self.p_thresh_ / (1-self.p_thresh_))
-        self.key_pose = None
     
     def _init_map(self, map_dimension=30, map_resolution=0.05):
         '''
@@ -41,8 +40,8 @@ class Particle():
         '''
         # Map representation
         MAP= {}
-        MAP['res']   =  map_resolution #meters
-        MAP['xmin']  = -map_dimension  #meters
+        MAP['res']   =  map_resolution # meters
+        MAP['xmin']  = -map_dimension  # meters
         MAP['ymin']  = -map_dimension
         MAP['xmax']  =  map_dimension
         MAP['ymax']  =  map_dimension
@@ -84,6 +83,8 @@ class Particle():
         self.occupied_pts_ = np.vstack((occupied_map[0], occupied_map[1]))
         print(f"-------_build_first_map-------occupied_pts_.T.size = {self.occupied_pts_.T.size}")
 
+    # p(xt | xt-1, ut), where ut is the odoumetry measurements and xt-1 is
+    # the latest trajectory that's already been predicted.
     def _predict(self, old_odom, new_odom, mov_cov):
         '''
         Applies motion model on last pose in 'trajectory'
@@ -99,22 +100,19 @@ class Particle():
         pred_with_noise = tf.twoDSmartPlus(pred_pose, noise)
         return pred_pose, pred_with_noise
 
-    def _set_key_data(self, cur_pose):
-        self.key_pose = cur_pose
-
-    def _scan_matching(self, init_scan, key_scan, cur_scan, cur_pose):
+    def _scan_matching(self, init_scan, perv_scan, cur_scan, cur_pose):
         '''
         Performs scan matching and returns (true,scan matched pose) or (false,None)
         '''
-        if (self.key_pose is None):
-            return False, np.zeros((3,))
         curr_scan_data = cur_scan.lidar_data - init_scan.lidar_data
-        key_scan_data = key_scan.lidar_data - init_scan.lidar_data
+        prev_scan_data = perv_scan.lidar_data - init_scan.lidar_data
         curr_coordinates = utils.dist_to_xy(curr_scan_data, cur_scan.lidar_angles_)
-        key_coordinates = utils.dist_to_xy(key_scan_data, key_scan.lidar_angles_)
+        prev_coordinates = utils.dist_to_xy(prev_scan_data, perv_scan.lidar_angles_)
+        prev_odom = self.trajectory_[:,-1]
         flag, updated_pose = matching.scan_matcher(
-            key_coordinates.copy(), self.key_pose.copy(), curr_coordinates.copy(), cur_pose.copy())
+            prev_coordinates.copy(), prev_odom.copy(), curr_coordinates.copy(), cur_pose.copy())
         return flag, updated_pose
+    
     
     
     def _sample_poses_in_interval(self, scan_match_pose):
@@ -135,7 +133,9 @@ class Particle():
 
     def _compute_new_pose(self, data_, prev_odom, cur_odom, pose_samples):
         '''
+        weights should be recalculated and normalized based on the likelihood of each sampled pose.
         Computes mean, cov, weight factor from pose_samples
+        wt -> p(zt|xt)/q(xt|xt-1, zt, ut)
         Samples new_pose from gaussian and appends to trajectory
         Updates weight
         '''
@@ -144,15 +144,18 @@ class Particle():
         variance = np.zeros((3,3))
         eta = np.zeros(pose_samples.shape[1])
         pose_prev = self.trajectory_[:,-1]
+        epsilon = 1e-10
         for i in range(pose_samples.shape[1]):
-            prob_measurement = models.measurement_model(data_, pose_samples[:,i], self.occupied_pts_.T, self.MAP_)
-            odom_measurement = models.odometry_model(pose_prev, pose_samples[:,i], prev_odom, cur_odom)
+            prob_measurement = max(models.measurement_model(data_, pose_samples[:,i], self.occupied_pts_.T, self.MAP_), epsilon)
+            odom_measurement = max(models.odometry_model(pose_prev, pose_samples[:,i], prev_odom, cur_odom), epsilon)
+            if np.isnan(prob_measurement):
+                prob_measurement = epsilon
+            if np.isnan(odom_measurement):
+                odom_measurement = epsilon
             eta[i] = (prob_measurement) * (odom_measurement)
             mean += pose_samples[:,i] * eta[i]
             #print(f"|----_compute_new_pose: eta for {pose_samples[:,i]} eta={prob_measurement}x{odom_measurement}={eta[i]}, mean={mean}")
         #print('Eta: ',np.sum(eta))
-        if np.sum(eta) <= def_zero_threshold or np.isnan(np.sum(eta)):
-            return np.array([np.inf, np.inf, np.inf])
         mean = mean / np.sum(eta)
         mean = np.reshape(mean,(3,1))
         for i in range(pose_samples.shape[1]):

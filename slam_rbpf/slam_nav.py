@@ -100,31 +100,7 @@ class LidarData:
         
         #left_min_distance = np.m
         #return False, front_min_distance
-        """
-        front_indices = (self.lidar_angles_ >= -np.pi/2) & (self.lidar_angles_ <= np.pi/2)
-        front_data = self.lidar_data[front_indices]
-        print(f"front_data = {front_data}")
-        front_angles = self.lidar_angles_[front_indices]
-        clear_ranges = []
-        start_index = None
-        for i in range(len(front_data)):
-            if front_data[i] > distance_threshold:
-                if start_index is None:
-                    start_index = i  # Start a new clear range
-            else:
-                if start_index is not None:
-                    # Check if the current clear range is wide enough
-                    if front_angles[i-1] - front_angles[start_index] >= window_angle_rad:
-                        clear_ranges.append([front_angles[start_index], front_angles[i-1]])
-                        print(f"scope: = {[front_angles[start_index], front_angles[i-1]]}, lidar_data = {front_data[start_index : i-1]}")
-                    start_index = None  # Reset start_index
         
-        # Check the last segment in case the clear range goes till the last lidar point
-        if start_index is not None and front_angles[-1] - front_angles[start_index] >= window_angle_rad:
-            clear_ranges.append([front_angles[start_index], front_angles[-1]])
-        
-        return False, clear_ranges
-        """
 
 class OdomData:
     def __init__(self, odom_data):
@@ -199,15 +175,13 @@ class SLAMNavigationNode(Node):
         self.move_threshold = 0.01
         self.slam_map = SLAM(mov_cov) # initiate a SLAM.
         self.is_initialized = False
-        self.timer = self.create_timer(1, self.process_data)
-        self.timer = self.create_timer(1, self.move_path)
+        self.timer = self.create_timer(0.5, self.process_data)
+        self.timer = self.create_timer(3, self.move_path)
         self.move_count = 0
-        self.key_scene_set = False
-
-        self.map_index = 0
         self.current_pos = None
         self.theta = 0
-        self.path = None
+        self.target_pos = None
+        self.update_map = 0
 
 
     def lidar_callback(self, msg):
@@ -219,20 +193,21 @@ class SLAMNavigationNode(Node):
     def path_callback(self, path):
         # Camera data might be used or displayed, but not stored as per current requirement
         self.get_logger().info('Received path data')
+        self.get_logger().info(f"path_callback self.target_reached={self.target_reached},"
+                               f" self.new_map_sent={self.new_map_sent},"
+                               f" self.status={self.status}")
         if self.target_reached and self.new_map_sent:
-            self.path = path
-            if self.path and len(self.path.poses) > 0:
+            if path and len(path.poses) > 0:
+                pose = path.poses[0].pose
+                self.target_pos = (int(pose.position.x), int(pose.position.y))
                 self.target_reached = False
-                current_pose = path.poses[self.map_index]
-                cur_y = current_pose.pose.position.x * GRID_SIZE
-                cur_x = current_pose.pose.position.y * GRID_SIZE
-                self.current_pos = [cur_x, cur_y]
-                self.map_index += 1
+                self.get_logger().info(f"Received path data self.target_pos={self.target_pos}")
 
     # callback function for odometers. the moved distance and turned angles could be calculated with collected data from
     # the odometer.
     def odom_callback(self, msg):
         odom_data = OdomData(msg)
+        self.get_logger().info(f"----odom_data = {odom_data.x}, {odom_data.y}, {odom_data.theta/np.pi * 180}")
         self.slam_map.add_odo_data(odom_data)
         self.theta = odom_data.theta
         if self.start_odom is None:
@@ -247,35 +222,24 @@ class SLAMNavigationNode(Node):
         elif self.status == STATUS_TYPE_ROTATE:
             rotated_angle = odom_data.theta - self.start_odom.theta
             rotated_angle = abs((rotated_angle + np.pi) % (2 * np.pi) - np.pi)
-
+            self.get_logger().info(f"----rotated_angle = {rotated_angle}, angle_to_rotate = {self.angle_to_rotate}")
             if (rotated_angle >= self.angle_to_rotate
                     or (abs(rotated_angle - self.angle_to_rotate) <= self.turn_threshold)):
-                self.get_logger().info(f"----turned angles =  {odom_data.theta}-{self.start_odom.theta}={rotated_angle}")
+                self.get_logger().info(f"----turned angles =  {odom_data.theta}-{self.start_odom.theta}={rotated_angle/np.pi * 180}")
                 self.stop_moving()
                 self.status = STATUS_TYPE_STAY
 
     def move_path(self):
         if self.status != STATUS_TYPE_STAY or self.target_reached:
             return
-        if self.path is None:
+        if self.target_pos is None:
             return
-        if len(self.path.poses) <= 1 or self.map_index == len(self.path.poses):
-            self.get_logger().info(f"Target Reached---")
-            self.map_index = 0
-            self.current_pos = None
-            self.target_reached = True
-            self.new_map_sent = False
-            return
-        # This method updates the robot's movement state based on elapsed time
-        next_pos = self.path.poses[self.map_index]
-        target_x = next_pos.pose.position.y * GRID_SIZE
-        target_y = next_pos.pose.position.x * GRID_SIZE
-        target_pos = [target_x, target_y]
-        self.get_logger().info(f"position transition: {self.map_index}, "
+
+        self.get_logger().info(f"position transition: "
                                f"({self.current_pos[0]}, f{self.current_pos[1]})"
-                               f"->({target_x}, f{target_y})")
+                               f"->({self.target_pos[0]}, f{self.target_pos[1]})")
         left_obstacle, front_obstacle, right_obstacle = self.lidar_data._detect_front_obstacles()
-        angle_to_turn = self.get_angle(self.current_pos, target_pos, self.theta)
+        angle_to_turn = self.get_angle(self.current_pos, self.target_pos, self.theta)
         angle_to_rotate = abs(angle_to_turn)
         self.get_logger().info(f"angle_to_turn = {angle_to_turn}, left_obstacle={left_obstacle}, front_obstacle={front_obstacle}, right_obstacle={right_obstacle}")
         msg = Int32MultiArray()
@@ -283,19 +247,20 @@ class SLAMNavigationNode(Node):
             direction = angle_to_turn / angle_to_rotate
             self.rotate(angle_to_rotate, direction)
         else :
-            distance_to_move = self.get_distance(self.current_pos, target_pos)
-            res = 0
+            distance_to_move = self.get_distance(self.current_pos, self.target_pos)
             safe_distance = front_obstacle * 0.86
             if safe_distance < 0.4:
                 # Found an unexpected obstacle. it's either a mistake in path planning or dynamic change
                 # either way, this trip should be terminated and wait for another map planning.
                 self.get_logger().info(f"Obstacle found, this trip is interrupted.")
+                if left_obstacle > right_obstacle:
+                    self.rotate(np.pi/3, 1)
+                else:
+                    self.rotate(np.pi/3, -1)
                 self.target_reached = True
                 self.new_map_sent = False
-                res = 1
-                msg.data = [self.map_index, res]
-                self.map_index = 0
-                self.process_publisher_.publish(msg)
+                #msg.data = self.current_pos
+                #self.process_publisher_.publish(msg)
             else:
                 if left_obstacle <= 0.35 and right_obstacle > left_obstacle:
                     angular = -0.1 # Too close to the left, turn right a bit.
@@ -306,16 +271,10 @@ class SLAMNavigationNode(Node):
                 distance_to_move = min(distance_to_move, safe_distance - 0.31) # 0.31 is the minimum distance where the obstacle can be detected.
                 self.get_logger().info(f"obstacle_distance={front_obstacle}, distance_to_move:{distance_to_move}")
                 self.go_straight(distance_to_move, angular)
-                if self.map_index == len(self.path.poses) - 1:
-                    res = 1
-                msg.data = [self.map_index, res]
-                self.map_index += 1
-                current_pose = next_pos
-                cur_x = current_pose.pose.position.y * GRID_SIZE
-                cur_y = current_pose.pose.position.x * GRID_SIZE
-                self.current_pos = [cur_x, cur_y]
-                self.process_publisher_.publish(msg)
-
+                #msg.data = self.target_pos
+                #self.process_publisher_.publish(msg)
+                self.target_reached = True
+                self.new_map_sent = False
             # Send current position and res to path planner to update the map record.
 
     # Take one step ahead along the path
@@ -345,7 +304,7 @@ class SLAMNavigationNode(Node):
     def rotate(self, angle_diff, direction):
         #self.angle_to_rotate = abs(angle_diff)
         self.angle_to_rotate = angle_diff
-        angular_speed = direction * 0.2
+        angular_speed = direction * 0.5
         self.get_logger().info(f"------Start to rotate-----angle_to_rotate = {self.angle_to_rotate}--speed = {angular_speed}--------")
         self.start_odom = None
         twist_msg = Twist()
@@ -364,7 +323,7 @@ class SLAMNavigationNode(Node):
         self.start_odom = None
         self.status = STATUS_TYPE_FORWARD
         twist_msg = Twist()
-        twist_msg.linear.x = 0.2
+        twist_msg.linear.x = 0.5
         twist_msg.angular.z = rotate
         self.vel_publisher.publish(twist_msg)
 
@@ -418,29 +377,31 @@ class SLAMNavigationNode(Node):
         MAP_2_display = 255 * np.ones((MAP['sizex'], MAP['sizey'], 3), dtype=np.uint8)
         MAP_2_display[y_wall_indices_conv, x_wall_indices, :] = [0, 0, 0]
         MAP_2_display[y_indices_conv, x_indices] = [70, 70, 228]
-
+        if self.target_pos is not None:
+            MAP_2_display[MAP['sizey'] - 1 - int(self.target_pos[1]), int(self.target_pos[0])] = [0, 255, 0]
         map_img = cv2.resize(MAP_2_display, (700, 700))
         image_msg = self.bridge.cv2_to_imgmsg(map_img, encoding='bgr8')
         self.map_pic_publisher.publish(image_msg)
-
-        if self.target_reached and not self.new_map_sent:
+        self.update_map += 1
+        if self.target_reached and not self.new_map_sent and  self.update_map > 5:
             update_time = time.time()
             grid = OccupancyGrid()
             grid.header = Header(frame_id="map")
             grid.info.width = MAP['sizex']
             grid.info.height = MAP['sizey']
             last_x = x_indices[-1] if x_indices.size > 0 else 0.0
-            last_y = y_indices_conv[-1] if y_indices_conv.size > 0 else 0.0
+            last_y = y_indices[-1] if y_indices.size > 0 else 0.0
             last_theta = particle.trajectory_[:, -1]
             rotation = R.from_euler('z', last_theta[2])
             quaternion = rotation.as_quat()
+            self.current_pos = (int(last_x), int(last_y))
             grid.info.origin = Pose(position = Point(x = float(last_x), y = float(last_y), z = 0.0))
             grid.info.origin.orientation.x = quaternion[0]
             grid.info.origin.orientation.y = quaternion[1]
             grid.info.origin.orientation.z = quaternion[2]
             grid.info.origin.orientation.w = quaternion[3]
             grid.data = [-1] * (grid.info.width * grid.info.height)
-            index = y_wall_indices_conv * grid.info.width + x_wall_indices
+            index = y_wall_indices * grid.info.width + x_wall_indices
             self.get_logger().info(f"grid map process last_x={last_x}, last_y={last_y}, last_theata={last_theta[2]}")
             for idx in index:
                 grid.data[idx] = 100
@@ -449,32 +410,6 @@ class SLAMNavigationNode(Node):
             self.get_logger().info(f"grid map process time consumed{update_elapsed:.5f}")
             self.new_map_sent = True
 
-    """
-    def get_optimal_rotation(self, clear_sections):
-        for section in clear_sections:
-            middle_angle = np.mean(section)  # Calculate the middle angle of the section
-            return middle_angle
-        return np.pi
-
-    
-    def explore_map(self):
-        self.get_logger().info('-----Explore_map-----')
-        if not self.key_scene_set:
-            # Before starting exploring, set the key scene.
-            self.key_scene_set = True
-            self.slam_map.set_key_scan = True
-        if self.lidar_data is None:
-            return
-        if self.status == STATUS_TYPE_STAY:
-            front_clear, clear_scopes = self.lidar_data._detect_front_obstacles()
-            self.get_logger().info(f'-----front_clear = {front_clear}, clear_scopes = {clear_scopes}-----')
-            if front_clear:
-                self.get_logger().info('-----clear, go ahead-----')
-                self.go_straight(0.2)
-            else:
-                angle_diff = self.get_optimal_rotation(clear_scopes)
-                self.rotate(angle_diff)
-    """
 def main(args=None):
     rclpy.init(args=args)
     slam_navigation_node = SLAMNavigationNode()

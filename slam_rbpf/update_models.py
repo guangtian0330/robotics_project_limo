@@ -6,6 +6,11 @@ from math import sqrt
 from scipy.stats import norm
 
 
+# This function is based on the model of p(zt|xt) that computes the likelihood of 
+# observing the current sensor data given a particle's pose.
+# This function converts lidar data to xy coordinates, maps these to the grid and
+# computes a probability based on the proximity to known obstacles, effectively applying
+# the measurement model.
 def measurement_model(data, pose, occupied_indices, MAP):
     """
     Parameters
