@@ -101,6 +101,7 @@ class PathPublisher(Node):
         for pos in self.obstacle_pos:
             self.obstacle_map[pos[1], pos[0]] = 1
         self.robotic_pose = (pose_x, pose_y, rotation)
+        self.global_record[pose_y, pose_x] += 100
         # The last pose should be stored in latest_trajectory and the current pose is sent from slam_nav
         last_pose = []
         if len(self.latest_trajectory) > 0:
@@ -113,12 +114,11 @@ class PathPublisher(Node):
             if x1 > x2:
                 x1, x2 = x2, x1
             self.global_record[y1:y2, x1:x2] += 50
-            self.get_logger().info(f"Global record: {self.global_record[y1:y2, x1:x2]}")
+            self.get_logger().info(f"Global record: {self.global_record[y1:y2, x1:x2]},\nGlobal record: scope x is {x1}~{x2}, y is {y1}~{y2}")
 
         self.latest_trajectory.append(self.robotic_pose)
-        self.global_record[pos[1], pos[0]] += 100
         self.get_logger().info(f"posey, posex = {pose_y, pose_x}")
-        self.obstacle_map[pose_y, pose_x] = 2
+        # self.obstacle_map[pose_y, pose_x] = 2
         # Find a proper target.
         target_found, target_pos = self.find_random_free_space()
         if target_found: # If a new target is found
@@ -141,13 +141,13 @@ class PathPublisher(Node):
     def find_random_free_space(self):
         start_x, start_y, theta = self.robotic_pose
         total = np.sum(self.global_record)
+        self.get_logger().info(f"Total value of self.global_record is {total}, average = {np.mean(self.global_record)}")
         if total == 0:
             base_probabilities = np.ones(self.global_record.shape) / np.product(self.global_record.shape)
         else:
             base_probabilities = (total - self.global_record) / total
 
         y_coords, x_coords = np.indices(self.global_record.shape)
-        self.get_logger().info(f"find_random_free_space SCOPE: x:{x_coords.min()}~{x_coords.max()}, y:{y_coords.min()}~{y_coords.max()}")
 
         distances = np.sqrt((x_coords - start_x)**2 + (y_coords - start_y)**2)
 
@@ -157,28 +157,27 @@ class PathPublisher(Node):
         combined_weights = base_probabilities * angle_weights
 
         self.get_logger().info(f"theta={theta}, angles={angles.min()}~{angles.max()}, angle_diffs={angle_diffs.min()}~{angle_diffs.max()}")
-        angle_mask = np.abs(angle_diffs) <= np.pi / 3
 
+        # Mask for selecting points within a angle difference of +-pi/3        
+        angle_mask = np.abs(angle_diffs) <= np.pi / 3
         # Mask for selecting points within a distance of 100
         distance_mask = distances <= 30
+
         combined_mask = np.logical_and(angle_mask, distance_mask)
         self.get_logger().info(f"combined_mask={combined_mask.shape}")
 
-        valid_indices = np.where(distance_mask.flatten())[0]
+        valid_indices = np.where(combined_mask.flatten())[0]
         probabilities = combined_weights.flatten()[valid_indices]
         probabilities /= np.sum(probabilities) # Normalize
 
-        valid_y_coords = y_coords[combined_mask]
-        valid_x_coords = x_coords[combined_mask]
-
         # 打印符合条件的坐标点范围
-        if valid_y_coords.size > 0 and valid_x_coords.size > 0:
-            y_min, y_max = valid_y_coords.min(), valid_y_coords.max()
-            x_min, x_max = valid_x_coords.min(), valid_x_coords.max()
-            self.get_logger().info(f"Valid points range: x:{x_min}~{x_max}, y:{y_min}~{y_max}")
-        else:
-            self.get_logger().info(f"No valid points found within the specified range")
-
+        dist_valid_y_coords = y_coords[distance_mask]
+        dist_valid_x_coords = x_coords[distance_mask]
+        angle_valid_y_coords = y_coords[angle_mask]
+        angle_valid_x_coords = x_coords[angle_mask]
+        self.get_logger().info(f"find_random_free_space SCOPE:    x:{x_coords.min()}~{x_coords.max()}, y:{y_coords.min()}~{y_coords.max()}")
+        self.get_logger().info(f"Valid points range for distance: x:{dist_valid_x_coords.min()}~{dist_valid_x_coords.max()}, y:{dist_valid_y_coords.min()}~{dist_valid_y_coords.max()}")
+        self.get_logger().info(f"Valid points range for angles:   x:{angle_valid_x_coords.min()}~{angle_valid_x_coords.max()}, y:{angle_valid_y_coords.min()}~{angle_valid_y_coords.max()}")
 
         max_attempts = 10000
         attempts = 0

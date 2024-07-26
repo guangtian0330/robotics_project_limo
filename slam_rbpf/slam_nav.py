@@ -208,7 +208,7 @@ class SLAMNavigationNode(Node):
     # the odometer.
     def odom_callback(self, msg):
         odom_data = OdomData(msg)
-        self.get_logger().info(f"----odom_data = {odom_data.x}, {odom_data.y}, {odom_data.theta/np.pi * 180}")
+        #self.get_logger().info(f"----odom_data = {odom_data.x}, {odom_data.y}, {odom_data.theta/np.pi * 180}")
         self.slam_map.add_odo_data(odom_data)
         self.theta = odom_data.theta
         if self.start_odom is None:
@@ -223,7 +223,7 @@ class SLAMNavigationNode(Node):
         elif self.status == STATUS_TYPE_ROTATE:
             rotated_angle = odom_data.theta - self.start_odom.theta
             rotated_angle = abs((rotated_angle + np.pi) % (2 * np.pi) - np.pi)
-            self.get_logger().info(f"----rotated_angle = {rotated_angle}, angle_to_rotate = {self.angle_to_rotate}")
+            #self.get_logger().info(f"----rotated_angle = {rotated_angle}, angle_to_rotate = {self.angle_to_rotate}")
             if (rotated_angle >= self.angle_to_rotate
                     or (abs(rotated_angle - self.angle_to_rotate) <= self.turn_threshold)):
                 self.get_logger().info(f"----turned angles =  {odom_data.theta}-{self.start_odom.theta}={rotated_angle/np.pi * 180}")
@@ -283,7 +283,7 @@ class SLAMNavigationNode(Node):
         # Calculate the angle of the target point relative to the current position
 
         delta_x = target_pose[0] - current_pose[0]
-        delta_y = -(target_pose[1]- current_pose[1])
+        delta_y = target_pose[1]- current_pose[1]
         target_angle = math.atan2(delta_y, delta_x)
         # Calculate the angle required to rotate
         rotation_angle = target_angle - current_angle_rad
@@ -377,14 +377,21 @@ class SLAMNavigationNode(Node):
 
         MAP_2_display = 255 * np.ones((MAP['sizex'], MAP['sizey'], 3), dtype=np.uint8)
         MAP_2_display[y_wall_indices_conv, x_wall_indices, :] = [0, 0, 0]
-        MAP_2_display[y_indices_conv, x_indices] = [70, 70, 228]
+        MAP_2_display[y_indices_conv, x_indices, :] = [70, 70, 228]
         if self.target_pos is not None:
-            MAP_2_display[MAP['sizey'] - 1 - int(self.target_pos[1]), int(self.target_pos[0])] = [0, 255, 0]
+            target_x = int(self.target_pos[0])
+            target_y = MAP['sizey'] - 1 - int(self.target_pos[1])
+            MAP_2_display[target_y, target_x, :] = [0, 255, 0]
+            # Draw a green line between self.target_pos and the last trajectory point
+            last_x = x_indices[-1]
+            last_y = y_indices_conv[-1]
+            self.get_logger().info(f"The current target to be drawn is {self.target_pos}")
+            cv2.line(MAP_2_display, (target_x, target_y), (last_x, last_y), (0, 255, 0), thickness=1)
         map_img = cv2.resize(MAP_2_display, (700, 700))
         image_msg = self.bridge.cv2_to_imgmsg(map_img, encoding='bgr8')
         self.map_pic_publisher.publish(image_msg)
         self.update_map += 1
-        if self.target_reached and not self.new_map_sent and  self.update_map > 5:
+        if self.target_reached and self.status is STATUS_TYPE_STAY and not self.new_map_sent and self.update_map > 5:
             update_time = time.time()
             grid = OccupancyGrid()
             grid.header = Header(frame_id="map")

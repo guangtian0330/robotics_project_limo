@@ -162,9 +162,9 @@ class Particle():
             variance += (pose_samples[:,i] - mean)@((pose_samples[:,i] - mean).T) * eta[i]
         variance = variance / np.sum(eta)   
         new_pose = np.random.multivariate_normal(mean.flatten(), variance)
-        print(f"|----_compute_new_pose before updating. self.weight_={self.weight_}")       
+        #print(f"|----_compute_new_pose before updating. self.weight_={self.weight_}")       
         self.weight_ = self.weight_ * np.sum(eta)
-        print(f"|----_compute_new_pose based on multiple poses: \n |--mean={mean},  \n |--eta={np.sum(eta)}, \n|--variance={variance}, \n|--self.weight_={self.weight_},\n--new_pose{new_pose}")
+        #print(f"|----_compute_new_pose based on multiple poses: \n |--mean={mean},  \n |--eta={np.sum(eta)}, \n|--variance={variance}, \n|--self.weight_={self.weight_},\n--new_pose{new_pose}")
         return new_pose
             
     def _update_map(self, data_, pose):
@@ -178,7 +178,7 @@ class Particle():
         map_x, map_y = tf._world_to_map(world_x, world_y, self.MAP_)
         r_map_x, r_map_y = tf._world_to_map(pose[0], pose[1], self.MAP_)
         #update_time_2 = time.time()
-        print(f"----------_update_map ------pose:{pose} ----> [{r_map_x}, {r_map_y}]")
+        #print(f"----------_update_map ------pose:{pose} ----> [{r_map_x}, {r_map_y}]")
         for ray_num in range(len(scan)):
             cells_x, cells_y = tf._bresenham2D(r_map_x, r_map_y, map_x[ray_num], map_y[ray_num], self.MAP_)
             if cells_x.shape[0] > 0:

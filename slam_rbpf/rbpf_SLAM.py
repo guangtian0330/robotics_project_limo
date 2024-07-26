@@ -79,7 +79,7 @@ class SLAM():
         self.weights_ = np.ones(self.num_p_) / self.num_p_     
         self.particles_ = new_particles
         self.Neff = 1 / np.sum(self.weights_ ** 2)
-        print(f"_resample --EXIT--- self.Neff ={self.Neff}")
+        #print(f"_resample --EXIT--- self.Neff ={self.Neff}")
 
     def _init_map_for_particles(self):
         print(f"__init_map_for_particles")
@@ -107,17 +107,17 @@ class SLAM():
             is_matched = False
             if not is_matched:
                 if p.occupied_pts_.T.size == 0:
-                    print(f"---p.occupied_pts_.T.size = {p.occupied_pts_.T.size}-----------------")
+                    #print(f"---p.occupied_pts_.T.size = {p.occupied_pts_.T.size}-----------------")
                     continue
                 # use motion model for pose estimate
                 est_pose = pred_with_noise
                 measure = models.measurement_model(cur_scan, pred_with_noise, p.occupied_pts_.T, p.MAP_)
-                print(f"|-----measurement_model, current weight{i} is {self.weights_[i]}, measure = {measure}----------------")
+                #print(f"|-----measurement_model, current weight{i} is {self.weights_[i]}, measure = {measure}----------------")
                 if measure > def_zero_threshold :
                     # the weight update is based on the measurement likelihood from measurement model.
                     p.weight_ = p.weight_ * measure
                 else :
-                    print(f"|-----no change for particle{i}, and current weight is {self.weights_[i]}, measure = {measure}-----")
+                    #print(f"|-----no change for particle{i}, and current weight is {self.weights_[i]}, measure = {measure}-----")
                     continue
             else:
                 print(f"is matched.  going to calculate sample poses")
@@ -128,8 +128,8 @@ class SLAM():
             #update_time = time.time()
             p._update_map(cur_scan, est_pose)
             #update_elapsed = time.time() - update_time
-            print(f"|-----_update_map  finished ------ self.weights_[{i}] = {self.weights_[i]}")
-            print(f"----------------------------------------------------------------------------------------")
+            #print(f"|-----_update_map  finished ------ self.weights_[{i}] = {self.weights_[i]}")
+            #print(f"----------------------------------------------------------------------------------------")
 
         self.Neff = 1 / np.sum(self.weights_ ** 2)
         print(f"Calculating the neff value after running all particles.------ self.Neff = {self.Neff}")
@@ -139,7 +139,7 @@ class SLAM():
         self.prev_odom = cur_odom
         #print(f"---_run_slam---{(slam_time - run_start_time):.5f} seconds-----number of particles = {self.num_p_}-----")
         # Generate the map based on the partichle with the larges weight.
-        print(f"----The updated pose is {self.particles_[np.argmax(self.weights_)].traj_indices_[:,-1]} from particle[{np.argmax(self.weights_)}]---------")
+        #print(f"----The updated pose is {self.particles_[np.argmax(self.weights_)].traj_indices_[:,-1]} from particle[{np.argmax(self.weights_)}]---------")
         return self.particles_[np.argmax(self.weights_)]
 
     """
