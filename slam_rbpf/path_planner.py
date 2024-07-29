@@ -67,7 +67,7 @@ class PathPublisher(Node):
             self.epsilon = min(1.0, 0.1 + 0.9 * explored_ratio)
 
             self.get_logger().info(f"exploration_detect = {explored_ratio}, self.epsilon = {self.epsilon}")
-            if explored_ratio > 0.8:
+            if explored_ratio > 0.1:
                 msg = Float32()
                 msg.data = explored_ratio
                 self.loop_publisher_.publish(msg)
@@ -76,7 +76,7 @@ class PathPublisher(Node):
             file_name = self.save_path + '/exploration_ratio_plot.png'
             plt.savefig(file_name)
             plt.figure(figsize=(10, 10))
-
+            plt.close()
         color_map = plt.cm.get_cmap('Reds')
         color_map.set_under(color='white')
         plt.imshow(self.global_record, cmap=color_map, vmin=0.1)
