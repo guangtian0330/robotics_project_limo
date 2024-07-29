@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import cv2
 from . import update_models as models
 import copy
+import matplotlib.pyplot as plt
 from nav_msgs.msg import OccupancyGrid, MapMetaData
 from std_msgs.msg import Header
 import time
@@ -23,7 +24,7 @@ def_zero_threshold = 1e-15
 
 
 class SLAM():
-    def __init__(self, mov_cov, num_p = 10, map_resolution = 0.05, map_dimension = 20, Neff_thresh = 3):
+    def __init__(self, mov_cov, num_p = 10, map_resolution = 0.05, map_dimension = 5, Neff_thresh = 3):
         self.num_p_ = num_p
         self.Neff_ = 0
         self.Neff_thresh_ = Neff_thresh
@@ -33,6 +34,7 @@ class SLAM():
         self.lidar_data = None
         self.odom_data_list = []
         self.particles_ = []
+        self.Neff_history = []
         self.grid_msg = None
         self.map_img = None
         self.map_msg = None
@@ -93,31 +95,23 @@ class SLAM():
         '''
             Performs SLAM
         '''
-        #run_start_time = time.time()
-        #for index in range(t0, t_end):
-        #start_time = time.time()    
         cur_scan = self.lidar_data
         cur_odom = self.get_odom_at_time(cur_scan)
         for i, p in enumerate(self.particles_):
             # predict with motion model
-            #predict_time = time.time()
-            #print(f"-----------------PARTICLE{i}--------------------------------------------------------------")
             pred_pose, pred_with_noise = p._predict(self.prev_odom, cur_odom, self.mov_cov_)
             #is_matched, scan_match_pose =  p._scan_matching(self.init_scan, self.prev_scan, cur_scan, pred_pose)
             is_matched = False
             if not is_matched:
                 if p.occupied_pts_.T.size == 0:
-                    #print(f"---p.occupied_pts_.T.size = {p.occupied_pts_.T.size}-----------------")
                     continue
                 # use motion model for pose estimate
                 est_pose = pred_with_noise
                 measure = models.measurement_model(cur_scan, pred_with_noise, p.occupied_pts_.T, p.MAP_)
-                #print(f"|-----measurement_model, current weight{i} is {self.weights_[i]}, measure = {measure}----------------")
                 if measure > def_zero_threshold :
                     # the weight update is based on the measurement likelihood from measurement model.
                     p.weight_ = p.weight_ * measure
                 else :
-                    #print(f"|-----no change for particle{i}, and current weight is {self.weights_[i]}, measure = {measure}-----")
                     continue
             else:
                 print(f"is matched.  going to calculate sample poses")
@@ -125,21 +119,24 @@ class SLAM():
                 #est_pose = p._compute_new_pose(cur_scan, self.prev_odom, cur_odom, sample_poses)
 
             self.weights_[i] = p.weight_
-            #update_time = time.time()
             p._update_map(cur_scan, est_pose)
-            #update_elapsed = time.time() - update_time
-            #print(f"|-----_update_map  finished ------ self.weights_[{i}] = {self.weights_[i]}")
-            #print(f"----------------------------------------------------------------------------------------")
 
         self.Neff = 1 / np.sum(self.weights_ ** 2)
-        print(f"Calculating the neff value after running all particles.------ self.Neff = {self.Neff}")
+        if not np.isfinite(self.Neff):
+                self.Neff = 0
+        self.Neff_history.append(self.Neff)
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.Neff_history)
+        plt.xlabel('Time (iterations)')
+        plt.ylabel('Neff')
+        plt.title('Effective Sample Size (Neff) Over Time')
+        plt.savefig('/home/agilex/slam_logs/neff_plot.png')
+        plt.close()
         if self.Neff < self.Neff_thresh_:
             self._resample()
         self.prev_scan = cur_scan
         self.prev_odom = cur_odom
-        #print(f"---_run_slam---{(slam_time - run_start_time):.5f} seconds-----number of particles = {self.num_p_}-----")
         # Generate the map based on the partichle with the larges weight.
-        #print(f"----The updated pose is {self.particles_[np.argmax(self.weights_)].traj_indices_[:,-1]} from particle[{np.argmax(self.weights_)}]---------")
         return self.particles_[np.argmax(self.weights_)]
 
     def _save_map(self, particle, t, p_num):

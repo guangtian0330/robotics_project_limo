@@ -73,7 +73,8 @@ class LidarData:
         return lidar_ptx, lidar_pty
 
 
-    def _detect_front_obstacles(self, distance_threshold=0.5, window_angle_rad=np.pi / 4):
+    def _detect_front_obstacles(self, distance_threshold=0.5, window_angle_rad=np.pi / 5):
+        print(f"self.lidar_data_range_min={self.lidar_data_range_min}")
         window_size = int(window_angle_rad / self.angle_increment)
         half_window_size = int(window_size / 2)
         center_index = len(self.lidar_data) // 2
@@ -155,15 +156,15 @@ class SLAMNavigationNode(Node):
         # Subscribe odometer data
         self.odom_subscription = self.create_subscription(
             Odometry,
-            '/odometry',
+            '/wheel/odom',
             self.odom_callback,
             10)
         self.bridge = CvBridge()
         self.map_pic_publisher = self.create_publisher(Image, '/slam_map_image', 10)
         self.process_publisher_ = self.create_publisher(Int32MultiArray, '/explore/process', 10)
         self.map_publisher = self.create_publisher(OccupancyGrid, 'map', 10)
-        self.vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
-        #self.vel_publisher = self.create_publisher(Twist, 'cmd_vel_input', 10)
+        #self.vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.vel_publisher = self.create_publisher(Twist, 'cmd_vel_input', 10)
         self.target_reached = True
         self.new_map_sent = False
 
@@ -250,25 +251,25 @@ class SLAMNavigationNode(Node):
         else :
             distance_to_move = self.get_distance(self.current_pos, self.target_pos)
             safe_distance = front_obstacle * 0.86
-            if safe_distance < 0.4:
+            if safe_distance < 0.2:
                 # Found an unexpected obstacle. it's either a mistake in path planning or dynamic change
                 # either way, this trip should be terminated and wait for another map planning.
                 self.get_logger().info(f"Obstacle found, this trip is interrupted.")
                 if left_obstacle > right_obstacle:
-                    self.rotate(np.pi/3, 1)
+                    self.rotate(np.pi/6, 1)
                 else:
-                    self.rotate(np.pi/3, -1)
+                    self.rotate(np.pi/6, -1)
                 self.target_reached = True
                 self.new_map_sent = False
 
             else:
-                if left_obstacle <= 0.35 and right_obstacle > left_obstacle:
+                if left_obstacle <= 0.2 and right_obstacle > left_obstacle:
                     angular = -0.1 # Too close to the left, turn right a bit.
-                elif right_obstacle <= 0.35 and left_obstacle > right_obstacle:
+                elif right_obstacle <= 0.2 and left_obstacle > right_obstacle:
                     angular = 0.1  # Too close to the right, turn left a bit.
                 else:
                     angular = 0.0
-                distance_to_move = min(distance_to_move, safe_distance - 0.31) # 0.31 is the minimum distance where the obstacle can be detected.
+                distance_to_move = min(distance_to_move, safe_distance - 0.2) # 0.31 is the minimum distance where the obstacle can be detected.
                 self.get_logger().info(f"obstacle_distance={front_obstacle}, distance_to_move:{distance_to_move}")
                 self.go_straight(distance_to_move, angular)
                 msg.data = self.current_pos + self.target_pos
@@ -387,7 +388,8 @@ class SLAMNavigationNode(Node):
 
             self.get_logger().info(f"The current target to be drawn is {self.target_pos}")
             cv2.line(MAP_2_display, (target_x, target_y), (last_x, last_y), (0, 255, 0), thickness=1)
-        map_img = cv2.resize(MAP_2_display, (700, 700))
+            cv2.circle(MAP_2_display, (last_x, last_y), radius=3, color=(0, 0, 255), thickness=-1)
+        map_img = cv2.resize(MAP_2_display, (500, 500))
         image_msg = self.bridge.cv2_to_imgmsg(map_img, encoding='bgr8')
         self.map_pic_publisher.publish(image_msg)
         self.update_map += 1

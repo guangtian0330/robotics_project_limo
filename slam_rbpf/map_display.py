@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 import cv2
 from sensor_msgs.msg import Image
+from std_msgs.msg import Float32
 from cv_bridge import CvBridge
 
 class PathPublisher(Node):
@@ -15,7 +16,7 @@ class PathPublisher(Node):
             self.map_pose_callback,
             10)
         self.path_subscription = self.create_subscription(
-            Image,
+            Float32,
             '/save_map',
             self.save_map,
             10)
@@ -31,8 +32,8 @@ class PathPublisher(Node):
     def save_map(self, msg):
         file_name = self.save_path + str(self.map_index)+'.png'
         self.get_logger().info(f"save_map  path = {self.save_path} ")
-        if self.save_map is not None:
-            cv2.imwrite(file_name, self.save_map)
+        if self.cv_image is not None:
+            cv2.imwrite(file_name, self.cv_image)
         self.map_index += 1
 
 # Main function

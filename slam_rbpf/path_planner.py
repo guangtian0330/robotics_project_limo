@@ -167,7 +167,7 @@ class PathPublisher(Node):
 
         self.get_logger().info(f"posey, posex = {pose_y, pose_x}")
         # Find a proper target.
-        target_found, target_pos = self.decide_next_pos()
+        target_found, target_pos = self.find_random_free_space()
         if target_found: # If a new target is found
             self.target_pose = target_pos
         elif len(self.latest_trajectory) > 0:
