@@ -155,15 +155,15 @@ class SLAMNavigationNode(Node):
         # Subscribe odometer data
         self.odom_subscription = self.create_subscription(
             Odometry,
-            '/wheel/odom',
+            '/odometry',
             self.odom_callback,
             10)
         self.bridge = CvBridge()
         self.map_pic_publisher = self.create_publisher(Image, '/slam_map_image', 10)
         self.process_publisher_ = self.create_publisher(Int32MultiArray, '/explore/process', 10)
         self.map_publisher = self.create_publisher(OccupancyGrid, 'map', 10)
-        #self.vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.vel_publisher = self.create_publisher(Twist, 'cmd_vel_input', 10)
+        self.vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
+        #self.vel_publisher = self.create_publisher(Twist, 'cmd_vel_input', 10)
         self.target_reached = True
         self.new_map_sent = False
 
@@ -260,8 +260,7 @@ class SLAMNavigationNode(Node):
                     self.rotate(np.pi/3, -1)
                 self.target_reached = True
                 self.new_map_sent = False
-                #msg.data = self.current_pos
-                #self.process_publisher_.publish(msg)
+
             else:
                 if left_obstacle <= 0.35 and right_obstacle > left_obstacle:
                     angular = -0.1 # Too close to the left, turn right a bit.
@@ -272,8 +271,8 @@ class SLAMNavigationNode(Node):
                 distance_to_move = min(distance_to_move, safe_distance - 0.31) # 0.31 is the minimum distance where the obstacle can be detected.
                 self.get_logger().info(f"obstacle_distance={front_obstacle}, distance_to_move:{distance_to_move}")
                 self.go_straight(distance_to_move, angular)
-                #msg.data = self.target_pos
-                #self.process_publisher_.publish(msg)
+                msg.data = self.current_pos + self.target_pos
+                self.process_publisher_.publish(msg)
                 self.target_reached = True
                 self.new_map_sent = False
             # Send current position and res to path planner to update the map record.
@@ -385,6 +384,7 @@ class SLAMNavigationNode(Node):
             # Draw a green line between self.target_pos and the last trajectory point
             last_x = x_indices[-1]
             last_y = y_indices_conv[-1]
+
             self.get_logger().info(f"The current target to be drawn is {self.target_pos}")
             cv2.line(MAP_2_display, (target_x, target_y), (last_x, last_y), (0, 255, 0), thickness=1)
         map_img = cv2.resize(MAP_2_display, (700, 700))

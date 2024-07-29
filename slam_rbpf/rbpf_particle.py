@@ -92,11 +92,11 @@ class Particle():
         '''
         old_pose = self.trajectory_[:,-1]
         odom_diff = tf.twoDSmartMinus(new_odom, old_odom)
-        print(f"Predict : old_odom{old_odom} -> new_odom{new_odom}, odom_diff{odom_diff}")  
+        #print(f"Predict : old_odom{old_odom} -> new_odom{new_odom}, odom_diff{odom_diff}")  
         noise = np.random.multivariate_normal(np.zeros(3), mov_cov, 1).flatten()
 
         pred_pose = tf.twoDSmartPlus(old_pose, odom_diff)
-        print(f"Predict : old_pose{old_pose} + odom_diff{odom_diff} = pred_pose{pred_pose}")
+        #print(f"Predict : old_pose{old_pose} + odom_diff{odom_diff} = pred_pose{pred_pose}")
         pred_with_noise = tf.twoDSmartPlus(pred_pose, noise)
         return pred_pose, pred_with_noise
 

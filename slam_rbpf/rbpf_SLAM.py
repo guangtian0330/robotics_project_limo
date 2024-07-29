@@ -101,7 +101,7 @@ class SLAM():
         for i, p in enumerate(self.particles_):
             # predict with motion model
             #predict_time = time.time()
-            print(f"-----------------PARTICLE{i}--------------------------------------------------------------")
+            #print(f"-----------------PARTICLE{i}--------------------------------------------------------------")
             pred_pose, pred_with_noise = p._predict(self.prev_odom, cur_odom, self.mov_cov_)
             #is_matched, scan_match_pose =  p._scan_matching(self.init_scan, self.prev_scan, cur_scan, pred_pose)
             is_matched = False
@@ -142,9 +142,7 @@ class SLAM():
         #print(f"----The updated pose is {self.particles_[np.argmax(self.weights_)].traj_indices_[:,-1]} from particle[{np.argmax(self.weights_)}]---------")
         return self.particles_[np.argmax(self.weights_)]
 
-    """
     def _save_map(self, particle, t, p_num):
         MAP = self._gen_map(particle)
         file_name = 'logs/New folder/t_'+ str(t)+'_p_'+str(p_num)+'.png'
         cv2.imwrite(file_name, MAP)
-    """

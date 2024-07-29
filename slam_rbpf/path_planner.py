@@ -4,22 +4,20 @@ from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 import numpy as np
 import cv2
-import math
-import heapq
-from cv_bridge import CvBridge
-from sensor_msgs.msg import Image
 from nav_msgs.msg import OccupancyGrid
-from collections import deque
 from scipy.spatial.transform import Rotation as R
-from std_msgs.msg import Int32MultiArray
+from std_msgs.msg import Int32MultiArray, Float32
+import matplotlib.pyplot as plt
 import random
 
-
+MAX_DISTANCE = 30
 
 class PathPublisher(Node):
     def __init__(self):
         super().__init__('path_publisher_node')
         self.publisher_ = self.create_publisher(Path, '/limo/path', 10)
+        self.loop_publisher_ = self.create_publisher(Float32, '/save_map', 10)
+
         self.path_subscription = self.create_subscription(
             Int32MultiArray,
             '/explore/process',
@@ -30,6 +28,9 @@ class PathPublisher(Node):
             'map',
             self.map_callback,
             10)
+        self.save_path = '/home/agilex/slam_logs'
+        self.timer = self.create_timer(10, self.exploration_detect)
+
         self.width = 1201
         self.height = 1201
         self.obstacle_pos = []
@@ -39,8 +40,52 @@ class PathPublisher(Node):
         self.path = []
         self.latest_trajectory = []
         self.global_record = None
+        self.explored_area = None
         self.obstacle_map = None
+        self.epsilon = 0.1  # ε-greedy factor
+
+        self.explored_ratios = []
+        self.fig, self.ax = plt.subplots()
+        self.line, = self.ax.plot([], [], 'b-')
+        self.ax.set_xlim(0, 100)
+        self.ax.set_ylim(0, 1)
+        self.ax.set_xlabel('Time (iterations)')
+        self.ax.set_ylabel('Exploration Ratio')
         
+    def exploration_detect(self):
+        if self.global_record is None or self.obstacle_map is None:
+            return
+        new_explored_area = self.find_min_submatrix_with_nonzeros()
+        similar = False
+        if self.explored_area is None:
+            self.explored_area = new_explored_area
+        else:
+            similar = self.compare_matrices(new_explored_area)
+        if similar:
+            explored_ratio = np.count_nonzero(new_explored_area) / new_explored_area.size
+            self.explored_ratios.append(explored_ratio)
+            self.epsilon = min(1.0, 0.1 + 0.9 * explored_ratio)
+
+            self.get_logger().info(f"exploration_detect = {explored_ratio}, self.epsilon = {self.epsilon}")
+            if explored_ratio > 0.8:
+                msg = Float32()
+                msg.data = explored_ratio
+                self.loop_publisher_.publish(msg)
+            self.line.set_data(range(len(self.explored_ratios)), self.explored_ratios)
+            self.ax.set_xlim(0, max(100, len(self.explored_ratios)))
+            file_name = self.save_path + '/exploration_ratio_plot.png'
+            plt.savefig(file_name)
+            plt.figure(figsize=(10, 10))
+
+        color_map = plt.cm.get_cmap('Reds')
+        color_map.set_under(color='white')
+        plt.imshow(self.global_record, cmap=color_map, vmin=0.1)
+        plt.colorbar()
+        plt.title('Global Record Visualization')
+        file_name = self.save_path + '/global_record_visualization.png'
+        plt.savefig(file_name)
+        plt.close()
+
     def publish_target(self):
         # Create a Path message
         path_msg = Path()
@@ -84,13 +129,30 @@ class PathPublisher(Node):
         yaw = euler_angles[2]
         self.path_planning(x_wall_indices, y_wall_indices, origin_x, origin_y, yaw)
 
-
     def map_process_callback(self, process_msg):
-        pos = process_msg.data
-        self.get_logger().info(f"map_process_callback: position = {pos}")
-        self.latest_trajectory.append(pos)
+        pos_data = process_msg.data
+        current_pos = pos_data[:2]
+        target_pos = pos_data[2:]
+        # update global_record for weight.
+        # The last pose should be stored in latest_trajectory and the current pose is sent from slam_nav
 
-    # update the 
+        if len(current_pos) > 0:
+            y1, y2 = current_pos[1], target_pos[1]
+            x1, x2 = current_pos[0], target_pos[0]
+            if y1 > y2:
+                y1, y2 = y2, y1
+            if x1 > x2:
+                x1, x2 = x2, x1
+            self.global_record[y1:y2, x1:x2] += 100
+            self.get_logger().info(f"Global record: {self.global_record[y1:y2, x1:x2]},\nGlobal record: scope x is {x1}~{x2}, y is {y1}~{y2}")
+
+        self.get_logger().info(f"map_process_callback: position = {current_pos} -> {target_pos}")
+        # if target_pose is already in the past trajectory, then delete the trajectories from that point.
+        if target_pos in self.latest_trajectory:
+            index = self.latest_trajectory.index(target_pos)
+            self.latest_trajectory = self.latest_trajectory[:index]
+        self.latest_trajectory.append(target_pos)
+
     def path_planning(self, x_wall_indices, y_wall_indices, pose_x, pose_y, rotation):
         # Collect obstacles.
         self.get_logger().info(f"START path_planning....")
@@ -100,42 +162,40 @@ class PathPublisher(Node):
             self.obstacle_map = np.zeros((self.height, self.width), dtype=int)
         for pos in self.obstacle_pos:
             self.obstacle_map[pos[1], pos[0]] = 1
+        self.global_record[self.obstacle_map > 0] += self.obstacle_map[self.obstacle_map > 0] * 10
         self.robotic_pose = (pose_x, pose_y, rotation)
-        self.global_record[pose_y, pose_x] += 100
-        # The last pose should be stored in latest_trajectory and the current pose is sent from slam_nav
-        last_pose = []
-        if len(self.latest_trajectory) > 0:
-            last_pose = self.latest_trajectory[-1]
-        if len(last_pose) > 0:
-            y1, y2 = last_pose[1], self.robotic_pose[1]
-            x1, x2 = last_pose[0], self.robotic_pose[0]
-            if y1 > y2:
-                y1, y2 = y2, y1
-            if x1 > x2:
-                x1, x2 = x2, x1
-            self.global_record[y1:y2, x1:x2] += 50
-            self.get_logger().info(f"Global record: {self.global_record[y1:y2, x1:x2]},\nGlobal record: scope x is {x1}~{x2}, y is {y1}~{y2}")
 
-        self.latest_trajectory.append(self.robotic_pose)
         self.get_logger().info(f"posey, posex = {pose_y, pose_x}")
-        # self.obstacle_map[pose_y, pose_x] = 2
         # Find a proper target.
-        target_found, target_pos = self.find_random_free_space()
+        target_found, target_pos = self.decide_next_pos()
         if target_found: # If a new target is found
-         self.target_pose = target_pos
+            self.target_pose = target_pos
         elif len(self.latest_trajectory) > 0:
             self.get_logger().info(f"No target pose found but latest_trajectory is not empty. reverse.")
-            self.target_pose = self.latest_trajectory.pop()
+            self.target_pose = self.latest_trajectory[-2]
+            self.latest_trajectory = self.latest_trajectory[:-2]
         else:
             self.get_logger().info(f"No target pose found and latest_trajectory is empty. Exploring done.")
             return
         self.path.append(self.target_pose)
         self.publish_target()
-        #local_map = self.obstacle_map[self.robotic_pose[1]:self.target_pose[1], self.robotic_pose[0]:self.target_pose[0]]
-        #self.get_logger().info(f"Displaying the local map : {local_map}")
-        # Exploration is stopped and the path has all been explored.
-        # Mark this area as explored in the global map.
         
+    def decide_next_pos(self):
+        res = True
+        pose_to_compare = self.robotic_pose[:2]
+        self.get_logger().info(f"pose_to_compare={pose_to_compare}, pose_to_compare len={len(pose_to_compare)}")
+        if random.uniform(0, 1) > self.epsilon or len(self.latest_trajectory) > 0:
+            self.get_logger().info(f"Go random search")
+            res, next_pos = self.find_random_free_space()
+        else:
+            trajectory_array = np.array(self.latest_trajectory)
+            positions = np.where((trajectory_array == pose_to_compare).all(axis=1))[0]
+            if len(positions) > 0 and positions[0] + 1 < len(trajectory_array):
+                res = True
+                next_pos = trajectory_array[positions[0] + 1]
+            else:
+                res, next_pos = self.find_random_free_space()
+        return res, next_pos
 
     # Find a random position in the nearest local map.
     def find_random_free_space(self):
@@ -150,7 +210,6 @@ class PathPublisher(Node):
         y_coords, x_coords = np.indices(self.global_record.shape)
 
         distances = np.sqrt((x_coords - start_x)**2 + (y_coords - start_y)**2)
-
         angles = np.arctan2(y_coords - start_y, x_coords - start_x)
         angle_diffs = np.fmod(angles - theta + 3 * np.pi, 2 * np.pi) - np.pi
         angle_weights = ((np.cos(angle_diffs) + 1) / 2) ** 2
@@ -161,7 +220,7 @@ class PathPublisher(Node):
         # Mask for selecting points within a angle difference of +-pi/3        
         angle_mask = np.abs(angle_diffs) <= np.pi / 3
         # Mask for selecting points within a distance of 100
-        distance_mask = distances <= 30
+        distance_mask = distances <= MAX_DISTANCE
 
         combined_mask = np.logical_and(angle_mask, distance_mask)
         self.get_logger().info(f"combined_mask={combined_mask.shape}")
@@ -170,7 +229,6 @@ class PathPublisher(Node):
         probabilities = combined_weights.flatten()[valid_indices]
         probabilities /= np.sum(probabilities) # Normalize
 
-        # 打印符合条件的坐标点范围
         dist_valid_y_coords = y_coords[distance_mask]
         dist_valid_x_coords = x_coords[distance_mask]
         angle_valid_y_coords = y_coords[angle_mask]
@@ -228,6 +286,30 @@ class PathPublisher(Node):
             if self.obstacle_map[y][x] == 1:  # Assuming 1 is the obstacle
                 return False
         return True
+
+    def find_min_submatrix_with_nonzeros(self):
+        non_zero_indices = np.argwhere(self.global_record != 0)
+        
+        if non_zero_indices.size == 0:
+            return np.array([[]]), (0, 0)
+        
+        min_row, min_col = np.min(non_zero_indices, axis=0)
+        max_row, max_col = np.max(non_zero_indices, axis=0)
+        
+        min_submatrix = self.global_record[min_row:max_row + 1, min_col:max_col + 1]
+        
+        return min_submatrix
+
+    def compare_matrices(self, new_explored_area, shape_threshold=0.1):
+
+        shape1 = np.array(self.explored_area.shape)
+        shape2 = np.array(new_explored_area.shape)
+        
+        shape_diff = np.abs(shape1 - shape2) / shape1
+        max_shape_diff = np.max(shape_diff)
+        
+        res = max_shape_diff > shape_threshold
+        return res
 
 
 # Main function
