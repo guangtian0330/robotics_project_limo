@@ -84,8 +84,6 @@ class LidarData:
         right_index = center_index + half_window_size + side_window_width - 1
         left_data = self.lidar_data[0 : side_window_width + 1]
         right_data = self.lidar_data[right_index : len(self.lidar_angles_) - 1]
-        #print(f"_detect_front_obstacles self.lidar_data = {self.lidar_data}")
-        #print(f"_detect_front_obstacles angle:from {self.lidar_angles_[center_index - half_window_size]} to {self.lidar_angles_[center_index + half_window_size]}")
         print(f"_detect_front_obstacles left self.angle = {self.lidar_angles_[0 : side_window_width + 1]}")
         print(f"_detect_front_obstacles front self.angle = {self.lidar_angles_[center_index - half_window_size : center_index + half_window_size + 1]}")
         print(f"_detect_front_obstacles right self.angle = {self.lidar_angles_[right_index : len(self.lidar_angles_) - 1]}")
@@ -96,11 +94,7 @@ class LidarData:
         print(f"_detect_front_obstacles min_distance is {front_min_distance}, self.angle = {self.lidar_angles_[np.argmin(front_data) + center_index-half_window_size]}")
         print(f"_detect_front_obstacles min_distance is {right_min_distance}, self.angle = {self.lidar_angles_[np.argmin(right_data) + right_index]}")
         return left_min_distance, front_min_distance, right_min_distance
-        #if np.all(front_data > distance_threshold):
-        #    return True, front_min_distance
-        
-        #left_min_distance = np.m
-        #return False, front_min_distance
+
         
 
 class OdomData:
@@ -114,16 +108,6 @@ class OdomData:
     
     def init_theta(self):
         x, y, z, w = self.quaternion.x, self.quaternion.y, self.quaternion.z, self.quaternion.w
-        """
-        t0 = +2.0 * (w * x + y * z)
-        t1 = +1.0 - 2.0 * (x * x + y * y)
-        self.roll = math.atan2(t0, t1)
-
-        t2 = +2.0 * (w * y - z * x)
-        t2 = +1.0 if t2 > +1.0 else t2
-        t2 = -1.0 if t2 < -1.0 else t2
-        self.pitch = math.asin(t2)
-        """
         t3 = +2.0 * (w * z + x * y)
         t4 = +1.0 - 2.0 * (y * y + z * z)
         self.theta = math.atan2(t3, t4)
@@ -156,15 +140,15 @@ class SLAMNavigationNode(Node):
         # Subscribe odometer data
         self.odom_subscription = self.create_subscription(
             Odometry,
-            '/wheel/odom',
+            '/odometry',
             self.odom_callback,
             10)
         self.bridge = CvBridge()
         self.map_pic_publisher = self.create_publisher(Image, '/slam_map_image', 10)
         self.process_publisher_ = self.create_publisher(Int32MultiArray, '/explore/process', 10)
         self.map_publisher = self.create_publisher(OccupancyGrid, 'map', 10)
-        #self.vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.vel_publisher = self.create_publisher(Twist, 'cmd_vel_input', 10)
+        self.vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
+        #self.vel_publisher = self.create_publisher(Twist, 'cmd_vel_input', 10)
         self.target_reached = True
         self.new_map_sent = False
 
@@ -182,6 +166,7 @@ class SLAMNavigationNode(Node):
         self.move_count = 0
         self.current_pos = None
         self.theta = 0
+        self.init_theta = 0
         self.target_pos = None
         self.update_map = 0
 
@@ -211,7 +196,7 @@ class SLAMNavigationNode(Node):
         odom_data = OdomData(msg)
         #self.get_logger().info(f"----odom_data = {odom_data.x}, {odom_data.y}, {odom_data.theta/np.pi * 180}")
         self.slam_map.add_odo_data(odom_data)
-        self.theta = odom_data.theta
+        self.theta = odom_data.theta - self.init_theta
         if self.start_odom is None:
             self.start_odom = odom_data
         if self.status == STATUS_TYPE_FORWARD:
@@ -251,7 +236,7 @@ class SLAMNavigationNode(Node):
         else :
             distance_to_move = self.get_distance(self.current_pos, self.target_pos)
             safe_distance = front_obstacle * 0.86
-            if safe_distance < 0.2:
+            if safe_distance < 0.3:
                 # Found an unexpected obstacle. it's either a mistake in path planning or dynamic change
                 # either way, this trip should be terminated and wait for another map planning.
                 self.get_logger().info(f"Obstacle found, this trip is interrupted.")
@@ -263,13 +248,13 @@ class SLAMNavigationNode(Node):
                 self.new_map_sent = False
 
             else:
-                if left_obstacle <= 0.2 and right_obstacle > left_obstacle:
+                if left_obstacle <= 0.31 and right_obstacle > left_obstacle:
                     angular = -0.1 # Too close to the left, turn right a bit.
-                elif right_obstacle <= 0.2 and left_obstacle > right_obstacle:
+                elif right_obstacle <= 0.31 and left_obstacle > right_obstacle:
                     angular = 0.1  # Too close to the right, turn left a bit.
                 else:
                     angular = 0.0
-                distance_to_move = min(distance_to_move, safe_distance - 0.2) # 0.31 is the minimum distance where the obstacle can be detected.
+                distance_to_move = min(distance_to_move, safe_distance - 0.3) # 0.31 is the minimum distance where the obstacle can be detected.
                 self.get_logger().info(f"obstacle_distance={front_obstacle}, distance_to_move:{distance_to_move}")
                 self.go_straight(distance_to_move, angular)
                 msg.data = self.current_pos + self.target_pos
@@ -341,6 +326,7 @@ class SLAMNavigationNode(Node):
             return
         self.get_logger().info(f"-----------process_data--------self.is_initialized = {self.is_initialized}-----")
         if not self.is_initialized:
+            self.init_theta = self.theta
             self.slam_map._init_map_for_particles()
             self.is_initialized = True
         else:
@@ -357,7 +343,6 @@ class SLAMNavigationNode(Node):
         '''
             Generates and publishes the combined map with trajectory to the ROS topic
         '''
-        #gen_init_time1 = time.time()
         log_odds = particle.log_odds_
         logodd_thresh = particle.logodd_thresh_
         traj = particle.traj_indices_
@@ -374,7 +359,7 @@ class SLAMNavigationNode(Node):
         x_indices = traj[0][valid_indices]
         y_indices = traj[1][valid_indices]
         y_indices_conv = MAP['sizey'] - 1 - y_indices
-
+        last_theta = particle.trajectory_[:, -1]
         MAP_2_display = 255 * np.ones((MAP['sizex'], MAP['sizey'], 3), dtype=np.uint8)
         MAP_2_display[y_wall_indices_conv, x_wall_indices, :] = [0, 0, 0]
         MAP_2_display[y_indices_conv, x_indices, :] = [70, 70, 228]
@@ -385,10 +370,16 @@ class SLAMNavigationNode(Node):
             # Draw a green line between self.target_pos and the last trajectory point
             last_x = x_indices[-1]
             last_y = y_indices_conv[-1]
-
+            angle = last_theta[2]
+            point1 = (int(last_x + 3 * np.cos(angle)), int(last_y - 3 * np.sin(angle)))
+            point2 = (int(last_x + 3 * np.cos(angle + 2 * np.pi / 3)), int(last_y - 3 * np.sin(angle + 2 * np.pi / 3)))
+            point3 = (int(last_x + 3 * np.cos(angle + 4 * np.pi / 3)), int(last_y - 3 * np.sin(angle + 4 * np.pi / 3)))
+            points = np.array([point1, point2, point3], np.int32)
+            points = points.reshape((-1, 1, 2))
+            cv2.polylines(MAP_2_display, [points], isClosed=True, color=(0, 0, 255), thickness=1)
+            cv2.fillPoly(MAP_2_display, [points], color=(0, 0, 255))
             self.get_logger().info(f"The current target to be drawn is {self.target_pos}")
             cv2.line(MAP_2_display, (target_x, target_y), (last_x, last_y), (0, 255, 0), thickness=1)
-            cv2.circle(MAP_2_display, (last_x, last_y), radius=3, color=(0, 0, 255), thickness=-1)
         map_img = cv2.resize(MAP_2_display, (500, 500))
         image_msg = self.bridge.cv2_to_imgmsg(map_img, encoding='bgr8')
         self.map_pic_publisher.publish(image_msg)
@@ -401,7 +392,7 @@ class SLAMNavigationNode(Node):
             grid.info.height = MAP['sizey']
             last_x = x_indices[-1] if x_indices.size > 0 else 0.0
             last_y = y_indices[-1] if y_indices.size > 0 else 0.0
-            last_theta = particle.trajectory_[:, -1]
+            
             rotation = R.from_euler('z', last_theta[2])
             quaternion = rotation.as_quat()
             self.current_pos = (int(last_x), int(last_y))

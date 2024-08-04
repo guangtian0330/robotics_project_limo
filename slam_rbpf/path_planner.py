@@ -9,6 +9,7 @@ from scipy.spatial.transform import Rotation as R
 from std_msgs.msg import Int32MultiArray, Float32
 import matplotlib.pyplot as plt
 import random
+import time
 
 MAX_DISTANCE = 30
 
@@ -29,7 +30,7 @@ class PathPublisher(Node):
             self.map_callback,
             10)
         self.save_path = '/home/agilex/slam_logs'
-        self.timer = self.create_timer(10, self.exploration_detect)
+        self.timer = self.create_timer(20, self.exploration_detect)
 
         self.width = 1201
         self.height = 1201
@@ -43,7 +44,7 @@ class PathPublisher(Node):
         self.explored_area = None
         self.obstacle_map = None
         self.epsilon = 0.1  # ε-greedy factor
-
+        self.start_time = time.time()
         self.explored_ratios = []
         self.fig, self.ax = plt.subplots()
         self.line, = self.ax.plot([], [], 'b-')
@@ -61,28 +62,26 @@ class PathPublisher(Node):
             self.explored_area = new_explored_area
         else:
             similar = self.compare_matrices(new_explored_area)
-        if similar:
-            explored_ratio = np.count_nonzero(new_explored_area) / new_explored_area.size
-            self.explored_ratios.append(explored_ratio)
-            self.epsilon = min(1.0, 0.1 + 0.9 * explored_ratio)
+        #if similar:
+        explored_ratio = np.count_nonzero(new_explored_area) / new_explored_area.size
+        self.explored_ratios.append(explored_ratio)
+        self.epsilon = min(1.0, 0.1 + 0.9 * explored_ratio)
 
-            self.get_logger().info(f"exploration_detect = {explored_ratio}, self.epsilon = {self.epsilon}")
-            if explored_ratio > 0.1:
-                msg = Float32()
-                msg.data = explored_ratio
-                self.loop_publisher_.publish(msg)
-            self.line.set_data(range(len(self.explored_ratios)), self.explored_ratios)
-            self.ax.set_xlim(0, max(100, len(self.explored_ratios)))
-            file_name = self.save_path + '/exploration_ratio_plot.png'
-            plt.savefig(file_name)
-            plt.figure(figsize=(10, 10))
-            plt.close()
+        self.get_logger().info(f"exploration_detect = {explored_ratio}, self.epsilon = {self.epsilon}")
+        #if explored_ratio > 0.1:
+        msg = Float32()
+        msg.data = explored_ratio
+        self.loop_publisher_.publish(msg)
+        self.line.set_data(range(len(self.explored_ratios)), self.explored_ratios)
+        self.ax.set_xlim(0, max(100, len(self.explored_ratios)))
+        elapsed_time = time.time() - self.start_time
+
         color_map = plt.cm.get_cmap('Reds')
         color_map.set_under(color='white')
         plt.imshow(self.global_record, cmap=color_map, vmin=0.1)
         plt.colorbar()
         plt.title('Global Record Visualization')
-        file_name = self.save_path + '/global_record_visualization.png'
+        file_name = self.save_path + '/' + str(elapsed_time) + '_global_record.png'
         plt.savefig(file_name)
         plt.close()
 

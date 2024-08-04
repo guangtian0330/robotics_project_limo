@@ -4,6 +4,7 @@ import cv2
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float32
 from cv_bridge import CvBridge
+import time
 
 class PathPublisher(Node):
     map_index = 0
@@ -22,6 +23,7 @@ class PathPublisher(Node):
             10)
         self.bridge = CvBridge()
         self.save_path = self.save_path = '/home/agilex/slam_logs/'
+        self.init_time = time.time()
     
     def map_pose_callback(self, msg):
         # Create a Path message
@@ -30,7 +32,8 @@ class PathPublisher(Node):
         cv2.imshow('Showing Map', self.cv_image)
 
     def save_map(self, msg):
-        file_name = self.save_path + str(self.map_index)+'.png'
+        elapsed_time = time.time() - self.init_time
+        file_name = self.save_path + str(elapsed_time)+'.png'
         self.get_logger().info(f"save_map  path = {self.save_path} ")
         if self.cv_image is not None:
             cv2.imwrite(file_name, self.cv_image)
