@@ -32,8 +32,8 @@ class PathPublisher(Node):
         cv2.imshow('Showing Map', self.cv_image)
 
     def save_map(self, msg):
-        elapsed_time = time.time() - self.init_time
-        file_name = self.save_path + str(elapsed_time)+'.png'
+
+        file_name = self.save_path + str(time.time() - self.init_time)+'.png'
         self.get_logger().info(f"save_map  path = {self.save_path} ")
         if self.cv_image is not None:
             cv2.imwrite(file_name, self.cv_image)

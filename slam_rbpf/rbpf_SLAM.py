@@ -24,7 +24,7 @@ def_zero_threshold = 1e-15
 
 
 class SLAM():
-    def __init__(self, mov_cov, num_p = 10, map_resolution = 0.05, map_dimension = 5, Neff_thresh = 3):
+    def __init__(self, mov_cov, num_p = 10, map_resolution = 0.05, map_dimension = 10, Neff_thresh = 3):
         self.num_p_ = num_p
         self.Neff_ = 0
         self.Neff_thresh_ = Neff_thresh

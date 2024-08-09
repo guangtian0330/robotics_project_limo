@@ -161,8 +161,8 @@ class SLAMNavigationNode(Node):
         self.move_threshold = 0.01
         self.slam_map = SLAM(mov_cov) # initiate a SLAM.
         self.is_initialized = False
-        self.timer = self.create_timer(0.5, self.process_data)
-        self.timer = self.create_timer(3, self.move_path)
+        self.timer = self.create_timer(0.3, self.process_data)
+        self.timer = self.create_timer(2, self.move_path)
         self.move_count = 0
         self.current_pos = None
         self.theta = 0
@@ -248,13 +248,13 @@ class SLAMNavigationNode(Node):
                 self.new_map_sent = False
 
             else:
-                if left_obstacle <= 0.31 and right_obstacle > left_obstacle:
+                if left_obstacle <= 0.38 and right_obstacle > left_obstacle:
                     angular = -0.1 # Too close to the left, turn right a bit.
-                elif right_obstacle <= 0.31 and left_obstacle > right_obstacle:
+                elif right_obstacle <= 0.38 and left_obstacle > right_obstacle:
                     angular = 0.1  # Too close to the right, turn left a bit.
                 else:
                     angular = 0.0
-                distance_to_move = min(distance_to_move, safe_distance - 0.3) # 0.31 is the minimum distance where the obstacle can be detected.
+                distance_to_move = min(distance_to_move, safe_distance - 0.35) # 0.31 is the minimum distance where the obstacle can be detected.
                 self.get_logger().info(f"obstacle_distance={front_obstacle}, distance_to_move:{distance_to_move}")
                 self.go_straight(distance_to_move, angular)
                 msg.data = self.current_pos + self.target_pos
@@ -329,6 +329,7 @@ class SLAMNavigationNode(Node):
             self.init_theta = self.theta
             self.slam_map._init_map_for_particles()
             self.is_initialized = True
+            self.init_theta = self.theta
         else:
             start_time = time.time()
             particle = self.slam_map._run_slam()
@@ -355,12 +356,13 @@ class SLAMNavigationNode(Node):
         valid_x = (traj[0] >= 0) & (traj[0] < MAP['sizex'])
         valid_y = (traj[1] >= 0) & (traj[1] < MAP['sizey'])
         valid_indices = valid_x & valid_y   
-        #MAP_2_display[abs(log_odds) < 1e-1, :] = [150, 150, 150]
         x_indices = traj[0][valid_indices]
         y_indices = traj[1][valid_indices]
         y_indices_conv = MAP['sizey'] - 1 - y_indices
         last_theta = particle.trajectory_[:, -1]
-        MAP_2_display = 255 * np.ones((MAP['sizex'], MAP['sizey'], 3), dtype=np.uint8)
+        MAP_2_display = 150 * np.ones((MAP['sizex'], MAP['sizey'], 3), dtype=np.uint8)
+        explored_indices = np.where(abs(log_odds) >= 1e-1)
+        MAP_2_display[MAP['sizey'] - 1 - explored_indices[1], explored_indices[0]] = [255, 255, 255]
         MAP_2_display[y_wall_indices_conv, x_wall_indices, :] = [0, 0, 0]
         MAP_2_display[y_indices_conv, x_indices, :] = [70, 70, 228]
         if self.target_pos is not None:
@@ -371,6 +373,7 @@ class SLAMNavigationNode(Node):
             last_x = x_indices[-1]
             last_y = y_indices_conv[-1]
             angle = last_theta[2]
+            # Draw a trangle to represent the position of the robot.
             point1 = (int(last_x + 3 * np.cos(angle)), int(last_y - 3 * np.sin(angle)))
             point2 = (int(last_x + 3 * np.cos(angle + 2 * np.pi / 3)), int(last_y - 3 * np.sin(angle + 2 * np.pi / 3)))
             point3 = (int(last_x + 3 * np.cos(angle + 4 * np.pi / 3)), int(last_y - 3 * np.sin(angle + 4 * np.pi / 3)))
@@ -392,7 +395,6 @@ class SLAMNavigationNode(Node):
             grid.info.height = MAP['sizey']
             last_x = x_indices[-1] if x_indices.size > 0 else 0.0
             last_y = y_indices[-1] if y_indices.size > 0 else 0.0
-            
             rotation = R.from_euler('z', last_theta[2])
             quaternion = rotation.as_quat()
             self.current_pos = (int(last_x), int(last_y))

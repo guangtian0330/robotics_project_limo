@@ -52,6 +52,8 @@ class PathPublisher(Node):
         self.ax.set_ylim(0, 1)
         self.ax.set_xlabel('Time (iterations)')
         self.ax.set_ylabel('Exploration Ratio')
+
+        self.init_time = time.time()
         
     def exploration_detect(self):
         if self.global_record is None or self.obstacle_map is None:
@@ -66,22 +68,16 @@ class PathPublisher(Node):
         explored_ratio = np.count_nonzero(new_explored_area) / new_explored_area.size
         self.explored_ratios.append(explored_ratio)
         self.epsilon = min(1.0, 0.1 + 0.9 * explored_ratio)
-
         self.get_logger().info(f"exploration_detect = {explored_ratio}, self.epsilon = {self.epsilon}")
-        #if explored_ratio > 0.1:
         msg = Float32()
         msg.data = explored_ratio
         self.loop_publisher_.publish(msg)
-        self.line.set_data(range(len(self.explored_ratios)), self.explored_ratios)
-        self.ax.set_xlim(0, max(100, len(self.explored_ratios)))
-        elapsed_time = time.time() - self.start_time
-
         color_map = plt.cm.get_cmap('Reds')
         color_map.set_under(color='white')
         plt.imshow(self.global_record, cmap=color_map, vmin=0.1)
         plt.colorbar()
         plt.title('Global Record Visualization')
-        file_name = self.save_path + '/' + str(elapsed_time) + '_global_record.png'
+        file_name = self.save_path + '/global_record_' + str(time.time() - self.init_time) +'.png'
         plt.savefig(file_name)
         plt.close()
 
