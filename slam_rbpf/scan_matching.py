@@ -32,7 +32,7 @@ def scan_matcher(prev_scan, prev_pose, curr_scan, curr_best_pose, thresh = 0.45)
     prev_error = 1e8
 
     print(f"scan_matcher: prev_pose = {prev_pose}, curr_best_pose = {curr_best_pose}, curr_error={curr_error}")
-    while (curr_error < prev_error and iters < 100):
+    while (curr_error < prev_error and iters < 3):
         d_pos_total_prev = d_pos_total
         prev_iter_pose_trial = prev_pose_trial
         prev_error = curr_error

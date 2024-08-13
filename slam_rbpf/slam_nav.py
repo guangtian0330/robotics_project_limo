@@ -34,8 +34,6 @@ from std_msgs.msg import Int32MultiArray
 STATUS_TYPE_STAY = "stay"
 STATUS_TYPE_FORWARD = "forward"
 STATUS_TYPE_ROTATE = "rotating"
-MAP_SIZE = 1200  # The original map size
-GRID_SIZE = int(MAP_SIZE / 150)  # The original map should be separated in to grids of size 60x60.
 
 mov_cov = np.array([[1e-8, 0, 0],
                     [0, 1e-8, 0],
@@ -50,7 +48,7 @@ class LidarData:
         angle_max = scan_data.angle_max
         self.angle_increment = scan_data.angle_increment
         self.lidar_angles_ = np.arange(angle_min, angle_max, self.angle_increment)
-        valid_indices = (self.lidar_angles_ >= -np.pi/2) & (self.lidar_angles_ <= np.pi/2)
+        valid_indices = (self.lidar_angles_ >= -np.pi*2/3) & (self.lidar_angles_ <= np.pi*2/3)
         self.lidar_angles_ = self.lidar_angles_[valid_indices]
         self.lidar_data = self.lidar_data[valid_indices]
         self.lidar_max_ = 8
@@ -114,16 +112,6 @@ class OdomData:
     
     def init_theta(self):
         x, y, z, w = self.quaternion.x, self.quaternion.y, self.quaternion.z, self.quaternion.w
-        """
-        t0 = +2.0 * (w * x + y * z)
-        t1 = +1.0 - 2.0 * (x * x + y * y)
-        self.roll = math.atan2(t0, t1)
-
-        t2 = +2.0 * (w * y - z * x)
-        t2 = +1.0 if t2 > +1.0 else t2
-        t2 = -1.0 if t2 < -1.0 else t2
-        self.pitch = math.asin(t2)
-        """
         t3 = +2.0 * (w * z + x * y)
         t4 = +1.0 - 2.0 * (y * y + z * z)
         self.theta = math.atan2(t3, t4)
@@ -177,20 +165,20 @@ class SLAMNavigationNode(Node):
         self.move_threshold = 0.01
         self.slam_map = SLAM(mov_cov) # initiate a SLAM.
         self.is_initialized = False
-        self.timer = self.create_timer(0.5, self.process_data)
-        self.timer = self.create_timer(3, self.move_path)
+        self.timer = self.create_timer(0.2, self.process_data)
+        self.timer = self.create_timer(2, self.move_path)
         self.move_count = 0
         self.current_pos = None
+        
+        self.init_theta = 0
         self.theta = 0
         self.target_pos = None
         self.update_map = 0
 
 
     def lidar_callback(self, msg):
-        #self.get_logger().info('Received lidar_callback data')
         self.lidar_data = LidarData(msg)
         self.slam_map.add_lidar_data(self.lidar_data)
-        #self.get_logger().info(f"----self.lidar_data = {self.lidar_data.lidar_data}")
 
     def path_callback(self, path):
         # Camera data might be used or displayed, but not stored as per current requirement
@@ -209,9 +197,8 @@ class SLAMNavigationNode(Node):
     # the odometer.
     def odom_callback(self, msg):
         odom_data = OdomData(msg)
-        #self.get_logger().info(f"----odom_data = {odom_data.x}, {odom_data.y}, {odom_data.theta/np.pi * 180}")
         self.slam_map.add_odo_data(odom_data)
-        self.theta = odom_data.theta
+        self.theta = odom_data.theta - self.init_theta
         if self.start_odom is None:
             self.start_odom = odom_data
         if self.status == STATUS_TYPE_FORWARD:
@@ -224,7 +211,6 @@ class SLAMNavigationNode(Node):
         elif self.status == STATUS_TYPE_ROTATE:
             rotated_angle = odom_data.theta - self.start_odom.theta
             rotated_angle = abs((rotated_angle + np.pi) % (2 * np.pi) - np.pi)
-            #self.get_logger().info(f"----rotated_angle = {rotated_angle}, angle_to_rotate = {self.angle_to_rotate}")
             if (rotated_angle >= self.angle_to_rotate
                     or (abs(rotated_angle - self.angle_to_rotate) <= self.turn_threshold)):
                 self.get_logger().info(f"----turned angles =  {odom_data.theta}-{self.start_odom.theta}={rotated_angle/np.pi * 180}")
@@ -289,7 +275,7 @@ class SLAMNavigationNode(Node):
         rotation_angle = target_angle - current_angle_rad
         # Make sure the rotation angle is between -π and π
         rotation_angle = (rotation_angle + np.pi) % (2 * np.pi) - np.pi
-        self.get_logger().info(f"delta_y={delta_y}, delta_x={delta_x}, target_angle={target_angle}, current_angle_rad={current_angle_rad}, rotation_angle={rotation_angle}")
+        self.get_logger().info(f"get_angle : delta_y={delta_y}, delta_x={delta_x}, target_angle={target_angle/np.pi * 180}, current_angle_rad={current_angle_rad/np.pi * 180}, rotation_angle={rotation_angle/np.pi * 180}")
         return rotation_angle
     
     def get_distance(self, current_pose, target_pose):
@@ -303,7 +289,6 @@ class SLAMNavigationNode(Node):
         return distance
 
     def rotate(self, angle_diff, direction):
-        #self.angle_to_rotate = abs(angle_diff)
         self.angle_to_rotate = angle_diff
         angular_speed = direction * 0.5
         self.get_logger().info(f"------Start to rotate-----angle_to_rotate = {self.angle_to_rotate}--speed = {angular_speed}--------")
@@ -343,6 +328,7 @@ class SLAMNavigationNode(Node):
         if not self.is_initialized:
             self.slam_map._init_map_for_particles()
             self.is_initialized = True
+            self.init_theta = self.theta
         else:
             start_time = time.time()
             particle = self.slam_map._run_slam()
@@ -357,7 +343,6 @@ class SLAMNavigationNode(Node):
         '''
             Generates and publishes the combined map with trajectory to the ROS topic
         '''
-        #gen_init_time1 = time.time()
         log_odds = particle.log_odds_
         logodd_thresh = particle.logodd_thresh_
         traj = particle.traj_indices_
@@ -375,7 +360,9 @@ class SLAMNavigationNode(Node):
         y_indices = traj[1][valid_indices]
         y_indices_conv = MAP['sizey'] - 1 - y_indices
 
-        MAP_2_display = 255 * np.ones((MAP['sizex'], MAP['sizey'], 3), dtype=np.uint8)
+        MAP_2_display = 150 * np.ones((MAP['sizex'], MAP['sizey'], 3), dtype=np.uint8)
+        explored_indices = np.where(abs(log_odds) >= 1e-1)
+        MAP_2_display[MAP['sizey'] - 1 - explored_indices[1], explored_indices[0]] = [255, 255, 255]
         MAP_2_display[y_wall_indices_conv, x_wall_indices, :] = [0, 0, 0]
         MAP_2_display[y_indices_conv, x_indices, :] = [70, 70, 228]
         if self.target_pos is not None:
@@ -385,10 +372,20 @@ class SLAMNavigationNode(Node):
             # Draw a green line between self.target_pos and the last trajectory point
             last_x = x_indices[-1]
             last_y = y_indices_conv[-1]
+            last_theta = particle.trajectory_[:, -1]
+            angle = last_theta[2]
+            self.get_logger().info(f"current angle from last theta = {angle/np.pi * 180}")
+            # Draw a trangle to represent the position of the robot.
+            point1 = (int(last_x + 3 * np.cos(angle)), int(last_y - 3 * np.sin(angle)))
+            point2 = (int(last_x + 3 * np.cos(angle + 2 * np.pi / 3)), int(last_y - 3 * np.sin(angle + 2 * np.pi / 3)))
+            point3 = (int(last_x + 3 * np.cos(angle + 4 * np.pi / 3)), int(last_y - 3 * np.sin(angle + 4 * np.pi / 3)))
+            points = np.array([point1, point2, point3], np.int32)
+            points = points.reshape((-1, 1, 2))
+            cv2.polylines(MAP_2_display, [points], isClosed=True, color=(0, 0, 255), thickness=1)
+            cv2.fillPoly(MAP_2_display, [points], color=(0, 0, 255))
 
             self.get_logger().info(f"The current target to be drawn is {self.target_pos}")
             cv2.line(MAP_2_display, (target_x, target_y), (last_x, last_y), (0, 255, 0), thickness=1)
-            cv2.circle(MAP_2_display, (last_x, last_y), radius=3, color=(0, 0, 255), thickness=-1)
         map_img = cv2.resize(MAP_2_display, (500, 500))
         image_msg = self.bridge.cv2_to_imgmsg(map_img, encoding='bgr8')
         self.map_pic_publisher.publish(image_msg)

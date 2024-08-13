@@ -9,7 +9,7 @@ from scipy.spatial.transform import Rotation as R
 from std_msgs.msg import Int32MultiArray, Float32
 import matplotlib.pyplot as plt
 import random
-
+import time
 MAX_DISTANCE = 30
 
 class PathPublisher(Node):
@@ -29,7 +29,7 @@ class PathPublisher(Node):
             self.map_callback,
             10)
         self.save_path = '/home/agilex/slam_logs'
-        self.timer = self.create_timer(10, self.exploration_detect)
+        self.timer = self.create_timer(20, self.exploration_detect)
 
         self.width = 1201
         self.height = 1201
@@ -45,14 +45,18 @@ class PathPublisher(Node):
         self.epsilon = 0.1  # ε-greedy factor
 
         self.explored_ratios = []
+        self.index_record = 0
         self.fig, self.ax = plt.subplots()
         self.line, = self.ax.plot([], [], 'b-')
         self.ax.set_xlim(0, 100)
         self.ax.set_ylim(0, 1)
         self.ax.set_xlabel('Time (iterations)')
         self.ax.set_ylabel('Exploration Ratio')
+        self.start_time = time.time()
         
     def exploration_detect(self):
+        if self.index_record > 10:
+            return
         if self.global_record is None or self.obstacle_map is None:
             return
         new_explored_area = self.find_min_submatrix_with_nonzeros()
@@ -67,24 +71,21 @@ class PathPublisher(Node):
             self.epsilon = min(1.0, 0.1 + 0.9 * explored_ratio)
 
             self.get_logger().info(f"exploration_detect = {explored_ratio}, self.epsilon = {self.epsilon}")
-            if explored_ratio > 0.1:
-                msg = Float32()
-                msg.data = explored_ratio
-                self.loop_publisher_.publish(msg)
-            self.line.set_data(range(len(self.explored_ratios)), self.explored_ratios)
-            self.ax.set_xlim(0, max(100, len(self.explored_ratios)))
-            file_name = self.save_path + '/exploration_ratio_plot.png'
-            plt.savefig(file_name)
-            plt.figure(figsize=(10, 10))
-            plt.close()
+        msg = Float32()
+        msg.data = 1.0
+        self.loop_publisher_.publish(msg)
+        self.line.set_data(range(len(self.explored_ratios)), self.explored_ratios)
+        self.ax.set_xlim(0, max(100, len(self.explored_ratios)))
+        elapse_time = int(time.time() - self.start_time)
         color_map = plt.cm.get_cmap('Reds')
         color_map.set_under(color='white')
         plt.imshow(self.global_record, cmap=color_map, vmin=0.1)
         plt.colorbar()
         plt.title('Global Record Visualization')
-        file_name = self.save_path + '/global_record_visualization.png'
+        file_name = self.save_path + '/explored_area_' + str(elapse_time)  + '_.png'
         plt.savefig(file_name)
         plt.close()
+        self.index_record += 1
 
     def publish_target(self):
         # Create a Path message
@@ -244,7 +245,8 @@ class PathPublisher(Node):
                 break
             idx = np.random.choice(valid_indices, p=probabilities)
             end_y, end_x = np.unravel_index(idx, self.global_record.shape)
-            if self.is_path_clear(start_x, start_y, end_x, end_y):
+            dist = abs(end_y - start_y) + abs(end_x - start_x)
+            if dist > 5.0 and self.is_path_clear(start_x, start_y, end_x, end_y):
                 return True, (end_x, end_y)
             attempts += 1
         self.get_logger().info(f"Tried everything but failed")

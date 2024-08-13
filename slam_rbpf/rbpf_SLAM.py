@@ -46,8 +46,10 @@ class SLAM():
     def add_lidar_data(self, data):
         self.lidar_data = data
 
-    def add_odo_data(self, data):
+    def add_odo_data(self, data, max_length=30):
         self.odom_data_list.append(data)
+        if len(self.odom_data_list) >= max_length:
+            self.odom_data_list.pop(0)
 
     def check_lidar_valid(self):
         return self.lidar_data is not None
