@@ -46,8 +46,10 @@ class SLAM():
     def add_lidar_data(self, data):
         self.lidar_data = data
 
-    def add_odo_data(self, data):
+    def add_odo_data(self, data, max_length=30):
         self.odom_data_list.append(data)
+        if len(self.odom_data_list) >= max_length:
+            self.odom_data_list.pop(0)
 
     def check_lidar_valid(self):
         return self.lidar_data is not None
@@ -120,7 +122,10 @@ class SLAM():
 
             self.weights_[i] = p.weight_
             p._update_map(cur_scan, est_pose)
-
+            #update_elapsed = time.time() - update_time
+            #print(f"|-----_update_map  finished ------ self.weights_[{i}] = {self.weights_[i]}")
+            #print(f"----------------------------------------------------------------------------------------")
+        particle = self.particles_[np.argmax(self.weights_)]
         self.Neff = 1 / np.sum(self.weights_ ** 2)
         if not np.isfinite(self.Neff):
                 self.Neff = 0
@@ -136,8 +141,7 @@ class SLAM():
             self._resample()
         self.prev_scan = cur_scan
         self.prev_odom = cur_odom
-        # Generate the map based on the partichle with the larges weight.
-        return self.particles_[np.argmax(self.weights_)]
+        return particle
 
     def _save_map(self, particle, t, p_num):
         MAP = self._gen_map(particle)
