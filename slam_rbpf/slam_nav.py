@@ -140,15 +140,15 @@ class SLAMNavigationNode(Node):
         # Subscribe odometer data
         self.odom_subscription = self.create_subscription(
             Odometry,
-            '/odometry',
+            '/wheel/odom',
             self.odom_callback,
             10)
         self.bridge = CvBridge()
         self.map_pic_publisher = self.create_publisher(Image, '/slam_map_image', 10)
         self.process_publisher_ = self.create_publisher(Int32MultiArray, '/explore/process', 10)
         self.map_publisher = self.create_publisher(OccupancyGrid, 'map', 10)
-        self.vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
-        #self.vel_publisher = self.create_publisher(Twist, 'cmd_vel_input', 10)
+        #self.vel_publisher = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.vel_publisher = self.create_publisher(Twist, 'cmd_vel_input', 10)
         self.target_reached = True
         self.new_map_sent = False
 
